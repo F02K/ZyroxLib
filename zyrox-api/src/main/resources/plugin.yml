@@ -1,0 +1,15 @@
+name: ZyroxAPI
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.api.plugin.ZyroxApiPlugin
+api-version: '1.21'
+author: tecca
+softdepend:
+  - LuckPerms
+commands:
+  zyrox:
+    description: Opens the ZyroxMC dashboard and executes registered platform actions.
+    usage: /zyrox <web|action>
+permissions:
+  zyrox.web.open:
+    description: Allows creating a personal ZyroxMC dashboard session link.
+    default: op

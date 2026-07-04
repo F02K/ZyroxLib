@@ -1,0 +1,28 @@
+plugins {
+    id 'java-library'
+}
+
+group = 'de.tecca.zyrox'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+
+    withSourcesJar()
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    compileOnly files('../zyrox-api/build/libs/zyrox-api-0.1.0-SNAPSHOT.jar')
+
+    implementation 'net.dv8tion:JDA:6.4.2'
+    implementation 'org.xerial:sqlite-jdbc:3.53.2.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+

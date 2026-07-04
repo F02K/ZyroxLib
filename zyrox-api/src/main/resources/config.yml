@@ -1,0 +1,6 @@
+web:
+  bind-address: "127.0.0.1"
+  port: 8080
+  public-url: "http://localhost:8080"
+  token-expiry-minutes: 10
+  command-permission: "zyrox.web.open"

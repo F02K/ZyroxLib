@@ -1,0 +1,39 @@
+discord:
+  token: "CHANGE_ME"
+  guild-id: "0"
+  verification-channel-id: "0"
+  verified-role-id: ""
+
+verification-message:
+  title: "ZyroxMC Verification"
+  description: "Click the button below and enter your Minecraft username to link your Discord account."
+  button-label: "Verify Minecraft Account"
+
+storage:
+  sqlite-file: "zyrox-dc.db"
+
+permissions:
+  admin: "zyrox.dc.admin"
+  web: "zyrox.dc.web"
+
+behavior:
+  auto-whitelist: true
+  assign-verified-role: true
+
+join-gate:
+  enabled: true
+  require-verification-without-server-whitelist: true
+  kick-message: |-
+    &cYou are not verified yet.
+    &7Please verify your Minecraft account in our Discord first.
+  error-message: |-
+    &cYour verification status could not be checked.
+    &7Please try again in a moment.
+
+ban-sync:
+  enabled: true
+  sync-existing-bans-on-start: true
+  unwhitelist-on-discord-ban: true
+  kick-message: |-
+    &cYour linked Discord account is banned.
+    &7Please contact support in Discord if you think this is a mistake.

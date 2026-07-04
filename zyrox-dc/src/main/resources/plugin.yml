@@ -1,0 +1,22 @@
+name: ZyroxDC
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.dc.plugin.ZyroxDcPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+libraries:
+  - net.dv8tion:JDA:6.4.2
+  - org.xerial:sqlite-jdbc:3.53.2.0
+commands:
+  zyroxdc:
+    description: Manages ZyroxMC Discord verification.
+    usage: /zyroxdc <verify-message|link|unlink|reload>
+permissions:
+  zyrox.dc.admin:
+    description: Allows managing Discord verification.
+    default: op
+  zyrox.dc.web:
+    description: Allows viewing Discord verification data in the Zyrox dashboard.
+    default: op
+

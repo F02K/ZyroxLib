@@ -22,6 +22,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.sql.SQLException;
@@ -36,6 +37,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     private VerificationService verificationService;
     private DiscordBotService discordBot;
     private ZyroxDcDashboardRenderer dashboardRenderer;
+    private BukkitTask nativeBanReconciliationTask;
 
     @Override
     public void onEnable() {
@@ -66,6 +68,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         registerZyroxApiIntegrations();
         registerCommand();
         registerListeners();
+        startNativeBanReconciliation();
         startDiscordBot();
 
         getLogger().info("ZyroxDC is enabled.");
@@ -75,6 +78,11 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     public void onDisable() {
         if (discordBot != null) {
             discordBot.stop();
+        }
+
+        if (nativeBanReconciliationTask != null) {
+            nativeBanReconciliationTask.cancel();
+            nativeBanReconciliationTask = null;
         }
 
         if (zyroxApi != null) {
@@ -176,12 +184,12 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.actions().register("zyrox-dc", new ZyroxAction(
                 "unlink",
                 "Unlink Account",
-                "Removes a Discord to Minecraft link.",
+                "Removes all Minecraft links for a Discord user.",
                 adminPermission,
                 List.of(ZyroxActionParameter.string("discord-id", "Discord User ID", true)),
                 context -> {
                     boolean removed = adminUnlink(requireParameter(context.parameters().get("discord-id"), "discord-id"));
-                    return ZyroxActionResult.success(removed ? "Account unlinked." : "No link existed.");
+                    return ZyroxActionResult.success(removed ? "All accounts for Discord user unlinked." : "No link existed.");
                 }
         ));
 
@@ -240,6 +248,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         registerBooleanSetting("ban-sync-existing-on-start", "Sync Existing Bans On Start", "Loads the current Discord ban list when the bot starts.", "ban-sync", "ban-sync.sync-existing-bans-on-start", adminPermission, 20);
         registerBooleanSetting("ban-sync-unwhitelist", "Unwhitelist On Discord Ban", "Removes linked Minecraft accounts from the native whitelist when Discord bans are synced.", "ban-sync", "ban-sync.unwhitelist-on-discord-ban", adminPermission, 30);
         registerStringSetting("ban-sync-kick-message", "Kick Message", "Message shown when a Discord-banned player tries to join.", "ban-sync", ZyroxSettingType.STRING, "ban-sync.kick-message", true, adminPermission, 40, false, false);
+        registerStringSetting("ban-sync-minecraft-kick-message", "Minecraft Ban Kick Message", "Message shown when a player is blocked because a linked Minecraft account is banned.", "ban-sync", ZyroxSettingType.STRING, "ban-sync.minecraft-ban-kick-message", true, adminPermission, 50, false, false);
 
         registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for account links.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, adminPermission, 10, true, false);
 
@@ -265,6 +274,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-existing-on-start");
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-unwhitelist");
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-kick-message");
+        zyroxApi.settings().unregister("zyrox-dc", "ban-sync-minecraft-kick-message");
         zyroxApi.settings().unregister("zyrox-dc", "storage-sqlite-file");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-admin");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-web");
@@ -340,9 +350,9 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     }
 
     private void registerCommand() {
-        PluginCommand command = getCommand("zyroxdc");
+        PluginCommand command = getCommand("discord");
         if (command == null) {
-            getLogger().warning("Command /zyroxdc is missing from plugin.yml.");
+            getLogger().warning("Command /discord is missing from plugin.yml.");
             return;
         }
 
@@ -352,7 +362,14 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     }
 
     private void registerListeners() {
-        getServer().getPluginManager().registerEvents(new ZyroxDcLoginListener(this, storage, minecraftAccounts), this);
+        getServer().getPluginManager().registerEvents(new ZyroxDcLoginListener(this, storage, minecraftAccounts, verificationService), this);
+    }
+
+    private void startNativeBanReconciliation() {
+        if (nativeBanReconciliationTask != null) {
+            nativeBanReconciliationTask.cancel();
+        }
+        nativeBanReconciliationTask = Bukkit.getScheduler().runTaskTimer(this, verificationService::reconcileNativeMinecraftBans, 1L, 20L * 60L);
     }
 
     private void startDiscordBot() {

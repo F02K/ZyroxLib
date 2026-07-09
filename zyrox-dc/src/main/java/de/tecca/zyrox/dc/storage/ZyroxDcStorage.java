@@ -39,19 +39,32 @@ public final class ZyroxDcStorage implements AutoCloseable {
 
     public synchronized void upsertLink(String discordId, String discordName, String minecraftUsername, String minecraftUuid) throws SQLException {
         Instant now = Instant.now();
+        String normalizedMinecraftUuid = minecraftUuid == null ? "" : minecraftUuid;
+        Optional<Long> existingLinkId = findLinkId(discordId, minecraftUsername, normalizedMinecraftUuid);
+        if (existingLinkId.isPresent()) {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE linked_accounts
+                    SET discord_name = ?, minecraft_username = ?, minecraft_uuid = ?, updated_at = ?
+                    WHERE id = ?
+                    """)) {
+                statement.setString(1, discordName);
+                statement.setString(2, minecraftUsername);
+                statement.setString(3, normalizedMinecraftUuid);
+                statement.setString(4, now.toString());
+                statement.setLong(5, existingLinkId.get());
+                statement.executeUpdate();
+            }
+            return;
+        }
+
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO linked_accounts(discord_id, discord_name, minecraft_username, minecraft_uuid, linked_at, updated_at)
                 VALUES(?, ?, ?, ?, ?, ?)
-                ON CONFLICT(discord_id) DO UPDATE SET
-                    discord_name = excluded.discord_name,
-                    minecraft_username = excluded.minecraft_username,
-                    minecraft_uuid = excluded.minecraft_uuid,
-                    updated_at = excluded.updated_at
                 """)) {
             statement.setString(1, discordId);
             statement.setString(2, discordName);
             statement.setString(3, minecraftUsername);
-            statement.setString(4, minecraftUuid);
+            statement.setString(4, normalizedMinecraftUuid);
             statement.setString(5, now.toString());
             statement.setString(6, now.toString());
             statement.executeUpdate();
@@ -65,14 +78,15 @@ public final class ZyroxDcStorage implements AutoCloseable {
         }
     }
 
-    public synchronized Optional<LinkedAccount> findByDiscordId(String discordId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM linked_accounts WHERE discord_id = ?")) {
+    public synchronized List<LinkedAccount> findAllByDiscordId(String discordId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM linked_accounts WHERE discord_id = ? ORDER BY minecraft_username COLLATE NOCASE")) {
             statement.setString(1, discordId);
             try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    return Optional.empty();
+                List<LinkedAccount> accounts = new ArrayList<>();
+                while (resultSet.next()) {
+                    accounts.add(readLinkedAccount(resultSet));
                 }
-                return Optional.of(readLinkedAccount(resultSet));
+                return accounts;
             }
         }
     }
@@ -226,16 +240,19 @@ public final class ZyroxDcStorage implements AutoCloseable {
 
     private void migrate() throws SQLException {
         try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
-                    CREATE TABLE IF NOT EXISTS linked_accounts(
-                        discord_id TEXT PRIMARY KEY,
-                        discord_name TEXT NOT NULL,
-                        minecraft_username TEXT NOT NULL,
-                        minecraft_uuid TEXT,
-                        linked_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
-                    )
-                    """);
+            if (!tableExists("linked_accounts")) {
+                createLinkedAccountsTable(statement);
+            } else if (!columnExists("linked_accounts", "id")) {
+                statement.executeUpdate("ALTER TABLE linked_accounts RENAME TO linked_accounts_old");
+                createLinkedAccountsTable(statement);
+                statement.executeUpdate("""
+                        INSERT INTO linked_accounts(discord_id, discord_name, minecraft_username, minecraft_uuid, linked_at, updated_at)
+                        SELECT discord_id, discord_name, minecraft_username, minecraft_uuid, linked_at, updated_at
+                        FROM linked_accounts_old
+                        """);
+                statement.executeUpdate("DROP TABLE linked_accounts_old");
+            }
+            createLinkedAccountsIndexes(statement);
             statement.executeUpdate("""
                     CREATE TABLE IF NOT EXISTS verification_events(
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,6 +271,73 @@ public final class ZyroxDcStorage implements AutoCloseable {
                         updated_at TEXT NOT NULL
                     )
                     """);
+        }
+    }
+
+    private Optional<Long> findLinkId(String discordId, String minecraftUsername, String minecraftUuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT id
+                FROM linked_accounts
+                WHERE discord_id = ?
+                  AND (
+                    (? <> '' AND minecraft_uuid = ?)
+                    OR ((minecraft_uuid IS NULL OR minecraft_uuid = '') AND LOWER(minecraft_username) = LOWER(?))
+                  )
+                LIMIT 1
+                """)) {
+            statement.setString(1, discordId);
+            statement.setString(2, minecraftUuid);
+            statement.setString(3, minecraftUuid);
+            statement.setString(4, minecraftUsername);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(resultSet.getLong("id"));
+            }
+        }
+    }
+
+    private void createLinkedAccountsTable(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                CREATE TABLE linked_accounts(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    discord_id TEXT NOT NULL,
+                    discord_name TEXT NOT NULL,
+                    minecraft_username TEXT NOT NULL,
+                    minecraft_uuid TEXT,
+                    linked_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """);
+        createLinkedAccountsIndexes(statement);
+    }
+
+    private void createLinkedAccountsIndexes(Statement statement) throws SQLException {
+        statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_linked_accounts_discord_id ON linked_accounts(discord_id)");
+        statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_linked_accounts_minecraft_uuid ON linked_accounts(minecraft_uuid)");
+        statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_linked_accounts_minecraft_username ON linked_accounts(minecraft_username COLLATE NOCASE)");
+    }
+
+    private boolean tableExists(String tableName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")) {
+            statement.setString(1, tableName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    private boolean columnExists(String tableName, String columnName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")")) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
         }
     }
 

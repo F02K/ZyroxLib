@@ -22,7 +22,7 @@ public final class ZyroxDcCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission(adminPermission)) {
-            sender.sendMessage("You do not have permission to use ZyroxDC admin commands.");
+            sender.sendMessage("You do not have permission to use Discord verification admin commands.");
             return true;
         }
 
@@ -51,7 +51,7 @@ public final class ZyroxDcCommand implements CommandExecutor, TabCompleter {
                         return true;
                     }
                     boolean removed = plugin.adminUnlink(args[1]);
-                    sender.sendMessage(removed ? "Account unlinked." : "No link existed for that Discord id.");
+                    sender.sendMessage(removed ? "All accounts for that Discord id unlinked." : "No link existed for that Discord id.");
                 }
                 case "reload" -> {
                     plugin.reloadPlugin();

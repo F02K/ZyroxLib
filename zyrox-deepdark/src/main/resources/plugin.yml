@@ -1,0 +1,21 @@
+name: ZyroxDeepDark
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.deepdark.plugin.ZyroxDeepDarkPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+commands:
+  deepdark:
+    description: Manages the Zyrox DeepDark dimension.
+    usage: /deepdark <reload|create-portal|delete-portal|list-portals|tp>
+permissions:
+  zyrox.deepdark.admin:
+    description: Allows managing the DeepDark dimension.
+    default: op
+  zyrox.deepdark.enter:
+    description: Allows entering the DeepDark dimension.
+    default: true
+  zyrox.deepdark.web:
+    description: Allows viewing DeepDark data in the Zyrox dashboard.
+    default: op

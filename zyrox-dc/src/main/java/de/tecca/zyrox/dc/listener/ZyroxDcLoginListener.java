@@ -1,6 +1,7 @@
 package de.tecca.zyrox.dc.listener;
 
 import de.tecca.zyrox.dc.minecraft.MinecraftAccountService;
+import de.tecca.zyrox.dc.service.VerificationService;
 import de.tecca.zyrox.dc.storage.DiscordBan;
 import de.tecca.zyrox.dc.storage.LinkedAccount;
 import de.tecca.zyrox.dc.storage.ZyroxDcStorage;
@@ -18,11 +19,13 @@ public final class ZyroxDcLoginListener implements Listener {
     private final JavaPlugin plugin;
     private final ZyroxDcStorage storage;
     private final MinecraftAccountService minecraftAccounts;
+    private final VerificationService verificationService;
 
-    public ZyroxDcLoginListener(JavaPlugin plugin, ZyroxDcStorage storage, MinecraftAccountService minecraftAccounts) {
+    public ZyroxDcLoginListener(JavaPlugin plugin, ZyroxDcStorage storage, MinecraftAccountService minecraftAccounts, VerificationService verificationService) {
         this.plugin = plugin;
         this.storage = storage;
         this.minecraftAccounts = minecraftAccounts;
+        this.verificationService = verificationService;
     }
 
     @EventHandler
@@ -36,9 +39,10 @@ public final class ZyroxDcLoginListener implements Listener {
         PlayerLoginEvent.Result result = event.getResult();
         boolean whitelistRejected = result == PlayerLoginEvent.Result.KICK_WHITELIST;
         boolean allowedLogin = result == PlayerLoginEvent.Result.ALLOWED;
+        boolean bannedLogin = result == PlayerLoginEvent.Result.KICK_BANNED;
         boolean shouldCheckVerification = joinGateEnabled && (whitelistRejected || (allowedLogin
                 && plugin.getConfig().getBoolean("join-gate.require-verification-without-server-whitelist", true)));
-        boolean shouldCheckBan = banSyncEnabled && (whitelistRejected || allowedLogin);
+        boolean shouldCheckBan = banSyncEnabled && (whitelistRejected || allowedLogin || bannedLogin);
 
         if (!shouldCheckVerification && !shouldCheckBan) {
             return;
@@ -63,6 +67,14 @@ public final class ZyroxDcLoginListener implements Listener {
                         "&cYou are not verified yet.\n&7Please verify your Minecraft account in our Discord."
                 )));
             }
+            return;
+        }
+
+        if (shouldCheckBan && verificationService.propagateNativeMinecraftBanIfNeeded(linkedAccount.get())) {
+            event.disallow(PlayerLoginEvent.Result.KICK_BANNED, formatMessage(plugin.getConfig().getString(
+                    "ban-sync.minecraft-ban-kick-message",
+                    "&cA linked Minecraft account is banned.\n&7Please contact support if you think this is a mistake."
+            )));
             return;
         }
 

@@ -644,7 +644,7 @@ public final class DashboardHttpServer implements HttpHandler {
                         async function loadDashboard() {
                             const response = await fetch('/api/dashboard');
                             if (!response.ok) {
-                                document.getElementById('app').innerHTML = '<p class="empty">Your session is invalid or expired. Create a new link with /zyrox web.</p>';
+                                document.getElementById('app').innerHTML = '<p class="empty">Your session is invalid or expired. Create a new link with /dashboard web.</p>';
                                 return;
                             }
                             dashboard = await response.json();

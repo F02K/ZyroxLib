@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +40,16 @@ public final class MinecraftAccountService {
         return player.map(OfflinePlayer::isWhitelisted).orElse(false);
     }
 
+    public boolean isBanned(LinkedMinecraftIdentity identity) {
+        Optional<OfflinePlayer> player = findOfflinePlayer(identity);
+        return player.map(OfflinePlayer::isBanned).orElse(false);
+    }
+
+    public void ban(LinkedMinecraftIdentity identity, String reason, String source) {
+        Optional<OfflinePlayer> player = findOfflinePlayer(identity);
+        player.ifPresent(offlinePlayer -> offlinePlayer.ban(reason, (Date) null, source));
+    }
+
     public Optional<OfflinePlayer> findOfflinePlayer(LinkedMinecraftIdentity identity) {
         if (identity.minecraftUuid() != null && !identity.minecraftUuid().isBlank()) {
             try {
@@ -61,4 +72,3 @@ public final class MinecraftAccountService {
     public record LinkedMinecraftIdentity(String minecraftUsername, String minecraftUuid) {
     }
 }
-

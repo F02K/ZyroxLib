@@ -6,9 +6,9 @@ author: tecca
 softdepend:
   - LuckPerms
 commands:
-  zyrox:
+  dashboard:
     description: Opens the ZyroxMC dashboard and executes registered platform actions.
-    usage: /zyrox <web|action>
+    usage: /dashboard <web|action>
 permissions:
   zyrox.web.open:
     description: Allows creating a personal ZyroxMC dashboard session link.

@@ -106,9 +106,9 @@ public final class ZyroxApiPlugin extends JavaPlugin {
     }
 
     private void registerCommand() {
-        PluginCommand command = getCommand("zyrox");
+        PluginCommand command = getCommand("dashboard");
         if (command == null) {
-            getLogger().warning("Command /zyrox is missing from plugin.yml.");
+            getLogger().warning("Command /dashboard is missing from plugin.yml.");
             return;
         }
 

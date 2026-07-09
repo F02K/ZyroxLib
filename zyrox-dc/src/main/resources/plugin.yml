@@ -9,9 +9,9 @@ libraries:
   - net.dv8tion:JDA:6.4.2
   - org.xerial:sqlite-jdbc:3.53.2.0
 commands:
-  zyroxdc:
-    description: Manages ZyroxMC Discord verification.
-    usage: /zyroxdc <verify-message|link|unlink|reload>
+  discord:
+    description: Manages Discord verification.
+    usage: /discord <verify-message|link|unlink|reload>
 permissions:
   zyrox.dc.admin:
     description: Allows managing Discord verification.
@@ -19,4 +19,3 @@ permissions:
   zyrox.dc.web:
     description: Allows viewing Discord verification data in the Zyrox dashboard.
     default: op
-

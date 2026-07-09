@@ -29,6 +29,26 @@ built, and versioned independently.
             +-- resources/
                 +-- plugin.yml
                 +-- config.yml
++-- zyrox-deepdark/
+    +-- build.gradle
+    +-- settings.gradle
+    +-- src/
+        +-- main/
+            +-- java/
+            |   +-- de/tecca/zyrox/deepdark/
+            +-- resources/
+                +-- plugin.yml
+                +-- config.yml
++-- zyrox-economy/
+    +-- build.gradle
+    +-- settings.gradle
+    +-- src/
+        +-- main/
+            +-- java/
+            |   +-- de/tecca/zyrox/economy/
+            +-- resources/
+                +-- plugin.yml
+                +-- config.yml
 ```
 
 ## Projects
@@ -164,7 +184,7 @@ api.actions().register("example", new ZyroxAction(
 Players with the configured permission can create a personal dashboard link:
 
 ```text
-/zyrox web
+/dashboard web
 ```
 
 The link contains a short-lived login token. After the first browser visit,
@@ -202,8 +222,60 @@ Portal so `zyrox-dc` can show non-bot Discord members that are not linked yet.
 Admin commands:
 
 ```text
-/zyroxdc verify-message
-/zyroxdc link <discordId> <minecraftName>
-/zyroxdc unlink <discordId>
-/zyroxdc reload
+/discord verify-message
+/discord link <discordId> <minecraftName>
+/discord unlink <discordId>
+/discord reload
+```
+
+## DeepDark Dimension
+
+`zyrox-deepdark` depends on `ZyroxAPI` and creates a Paper-managed Deep Dark
+world named `zyrox_deepdark` by default. Players enter it through activated
+Ancient City Reinforced Deepslate portal frames using an Echo Shard. The portal
+frame uses the vanilla 22-block-wide, 8-block-high Ancient City size. Activated
+frames are filled with Nether Portal blocks.
+
+ZyroxDeepDark cancels vanilla Nether portal travel for registered DeepDark
+portals, so the Nether Portal blocks are only visual and never send players to
+the Nether. Linked return portals use 1:1 Overworld/DeepDark X/Z coordinates and
+generate a safe platform around the 22x8 frame. The DeepDark generator uses a
+layered cavern-biome mix with larger halls, side tunnels, sculk patches, columns,
+and clearer floor/ceiling shapes.
+
+Admin commands:
+
+```text
+/deepdark reload
+/deepdark create-portal [id]
+/deepdark delete-portal <id>
+/deepdark list-portals
+/deepdark tp
+```
+
+## Diamond Economy
+
+`zyrox-economy` depends on `ZyroxAPI` and `Vault`, then registers itself as the
+Vault economy provider. Vault balance is intentionally strict: it is only the
+count of economy items in the online player's inventory. Whole Vault amounts map
+1:1 to diamonds, so a shop price of `2` costs exactly two diamonds. Fractional
+Vault amounts such as `2.5` are rejected.
+
+Shop withdrawals remove the exact whole diamond amount from the buyer inventory
+and put the same amount into a covered reserve. Shop deposits are accepted only
+while enough covered reserve exists, so seller cashout-bank balances cannot be
+created from nothing. Cashout pays only whole diamonds and fails without changing
+the bank balance when the player inventory has no room.
+
+Player commands:
+
+```text
+/economy balance
+/economy cashout [amount|all]
+```
+
+Admin command:
+
+```text
+/economy reload
 ```

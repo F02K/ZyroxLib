@@ -1,0 +1,246 @@
+permissions:
+  admin: "zyrox.end.admin"
+
+dragon-egg:
+  lore:
+    title: "Erstes Drachenei"
+    owner-format: "Besitzer: %player%"
+
+fight:
+  enabled: true
+  first-ritual:
+    enabled: true
+    total-seconds: 90.0
+    build-up-seconds: 15.0
+    activation-seconds: 50.0
+    finale-seconds: 8.0
+    animation-interval-ticks: 4
+  profiles:
+    repeat:
+      dragon-health-multiplier: 0.85
+      node-health-multiplier: 0.85
+      damage-multiplier: 0.85
+      cooldown-multiplier: 1.15
+      mob-budget-multiplier: 0.75
+  arena:
+    center-x: 0.0
+    center-z: 0.0
+    radius: 128.0
+  dragon:
+    max-health: 1000.0
+  behavior:
+    phase-control-enabled: true
+    combo-enabled: true
+    anti-stack-player-distance: 5.0
+    anti-camp-extra-weight: 2
+    direct-attack-engage-ticks: 40
+    direct-attack-timeout-ticks: 120
+    direct-attack-retry-ticks: 20
+    direct-attack-chase-speed: 1.25
+    direct-attack-control-interval-ticks: 5
+    direct-attack-stall-distance: 2.5
+    direct-attack-stall-reset-ticks: 20
+    direct-attack-stall-reposition-ticks: 45
+    fallback-ritual-on-timeout: true
+  phases:
+    opening: "Erwachen"
+    totems: "Kristallritual"
+    escalation: "Eskalation"
+    final: "Finale Bindung"
+  messages:
+    ritual-start: "Die Ritualwirker rufen den Drachen."
+    ritual-bossbar: "Das Ritual erwacht"
+    ritual-totem-bossbar: "Totem %current%/%total%"
+    ritual-convergence-bossbar: "Die Energien vereinen sich"
+    ritual-finale-bossbar: "Der Drache erwacht"
+    ritual-complete: "Der Drache ist erwacht."
+    phase-totems: "Die Endkristalle binden ihre Macht an den Drachen."
+    phase-escalation: "Das Ende wird instabil."
+    phase-final: "Finale Anker binden den Drachen."
+    dragon-exposed: "Der Drache ist verwundbar."
+    node-fallen: "%node% ist gefallen."
+    locked-indicator: "%node%\nVersiegelt - erwacht in Phase: %phase%"
+    crystal-indicator: "%node%\n%bar% %health%/%max_health%"
+    bossbar-opening: "Phase: %phase%"
+    bossbar-totems: "Phase: %phase%"
+    bossbar-escalation: "Phase: %phase%"
+    bossbar-final: "Phase: %phase%"
+    bossbar-exposed: "Der Drache ist verwundbar"
+    attack-breath-strafe: "Der Drache setzt zum Atemflug an."
+    attack-sky-crash: "Der Drache stuerzt vom Himmel."
+    attack-wing-ring: "Der Drache sammelt einen Fluegelschlag."
+    attack-void-grasp: "Die Leere greift nach euch."
+    attack-crystal-barrage: "Der Drache entfesselt eine Kristallsalve."
+    attack-perch-ritual: "Der Drache ruft ein Portalritual."
+  node-names:
+    none: "Endkristall"
+    dragon-ward: "Drachenwacht"
+    life-spire: "Lebensspitze"
+    crystal-thorns: "Kristalldornen"
+    storm-spire: "Sturmspitze"
+    gravity-anchor: "Schwerkraftanker"
+    pillar-beam: "Pfeilerstrahl"
+    void-rift: "Leerenriss"
+    ender-volley: "Endersalve"
+    wing-gust: "Fluegelstoss"
+    final-anchor: "Finaler Anker"
+  crystals:
+    base-health: 80.0
+    health-per-participant: 10.0
+    melee-damage: 8.0
+    projectile-damage: 12.0
+    explosion-damage: 20.0
+    player-hit-cooldown-ticks: 10
+    global-hit-cooldown-ticks: 4
+    spam-guardian-focus-seconds: 8.0
+    indicator:
+      enabled: true
+      y-offset: 2.4
+      bar-width: 10
+  guardians:
+    enabled: true
+    spawn-interval-seconds: 14.0
+    max-per-player: 2
+    max-total: 10
+    visual:
+      scale: 1.15
+      particle-interval-seconds: 1.0
+    phase-budgets:
+      opening:
+        base: 0
+        per-player: 0
+        maximum: 0
+      totems:
+        base: 2
+        per-player: 2
+        maximum: 10
+      escalation:
+        base: 3
+        per-player: 2
+        maximum: 12
+      final:
+        base: 4
+        per-player: 2
+        maximum: 14
+    phase-weights:
+      opening:
+        enderman: 0
+        shulker: 0
+      totems:
+        enderman: 3
+        shulker: 1
+      escalation:
+        enderman: 2
+        shulker: 3
+      final:
+        enderman: 3
+        shulker: 3
+    void-intercept:
+      damage: 8.0
+      weakness-seconds: 4.0
+      slowness-seconds: 3.0
+      cooldown-seconds: 5.0
+    pearl-snare:
+      slowness-seconds: 3.0
+    anchor-shot:
+      damage: 7.0
+      levitation-seconds: 2.0
+      slow-falling-seconds: 4.0
+      cooldown-seconds: 6.0
+    crystal-ward:
+      damage-reduction: 0.5
+      duration-seconds: 4.0
+  totems:
+    assignment:
+      mode: "shuffled-default-10"
+    ring-radius: 64.0
+    base-health: 120.0
+    health-per-participant: 12.0
+    shield-reduction-per-totem: 0.15
+    shield-reduction-cap: 0.45
+    locked:
+      actionbar-message: "Dieses Totem ist noch versiegelt."
+    life-spire:
+      heal-interval-seconds: 5.0
+      heal-amount: 8.0
+      final-phase-multiplier: 0.35
+      max-heal-per-second: 8.0
+    crystal-thorns:
+      damage: 2.0
+      knockback: 0.45
+      cooldown-seconds: 4.0
+      burst-particles: 26
+  arena-events:
+    base-cooldown-seconds: 45.0
+    storm-reduction-seconds: 5.0
+    final-cooldown-seconds: 25.0
+    minimum-cooldown-seconds: 15.0
+    warning-seconds: 3.0
+  attacks:
+    base-cooldown-seconds: 18.0
+    final-cooldown-seconds: 10.0
+    minimum-cooldown-seconds: 7.0
+    storm-reduction-seconds: 2.0
+    warning-seconds: 2.0
+    point-vertical-range: 6.0
+    lane-vertical-range: 4.0
+    dive:
+      damage: 13.0
+      knockback: 1.45
+      lane-width: 3.5
+      engage-range: 96.0
+      impact-range: 34.0
+    pillar-beam:
+      damage: 12.0
+    ender-volley:
+      damage: 10.5
+      max-targets: 4
+    wing-gust:
+      radius: 42.0
+      damage: 6.0
+      knockback: 1.65
+      engage-range: 56.0
+      impact-range: 30.0
+    void-rift:
+      damage: 9.5
+    breath-strafe:
+      damage: 9.5
+      lane-width: 4.5
+      engage-range: 84.0
+      impact-range: 42.0
+    sky-crash:
+      damage: 15.5
+      knockback: 1.8
+      lane-width: 4.0
+      aftershock-damage: 6.5
+      engage-range: 108.0
+      impact-range: 38.0
+    wing-ring:
+      damage: 9.5
+      radius: 18.0
+      knockback: 1.4
+      engage-range: 48.0
+      impact-range: 22.0
+    void-grasp:
+      damage: 10.5
+      radius: 5.0
+      pull: 0.75
+      max-targets: 3
+    crystal-barrage:
+      damage: 10.5
+      radius: 4.0
+      max-targets: 4
+      engage-range: 120.0
+      impact-range: 96.0
+    perch-ritual:
+      damage: 10.5
+      radius: 12.0
+  anti-cheese:
+    explosion-dragon-damage-cap: 10.0
+    inactive-after-seconds: 90.0
+    pillar-camping-y: 78.0
+    pillar-camping-threshold-seconds: 20.0
+  final-phase:
+    anchor-damage-reduction: 0.40
+    exposed-damage-bonus: 0.20
+    exposed-seconds: 15.0

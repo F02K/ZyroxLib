@@ -37,3 +37,6 @@ ban-sync:
   kick-message: |-
     &cYour linked Discord account is banned.
     &7Please contact support in Discord if you think this is a mistake.
+  minecraft-ban-kick-message: |-
+    &cA linked Minecraft account is banned.
+    &7Please contact support if you think this is a mistake.

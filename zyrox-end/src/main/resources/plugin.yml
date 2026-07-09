@@ -1,0 +1,16 @@
+name: ZyroxEnd
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.end.plugin.ZyroxEndPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+  - NBTAPI
+commands:
+  end:
+    description: Shows and manages ZyroxEnd state.
+    usage: /end <reload|status|egg bind>
+permissions:
+  zyrox.end.admin:
+    description: Allows managing ZyroxEnd.
+    default: op

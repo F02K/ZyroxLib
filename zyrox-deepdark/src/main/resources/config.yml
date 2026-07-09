@@ -1,0 +1,30 @@
+world:
+  name: "zyrox_deepdark"
+  seed: 918273645
+  cavern-height: 72
+  hall-density: 44
+  tunnel-density: 38
+  floor-roughness: 8
+  ceiling-roughness: 10
+  sculk-density: 55
+  spawn:
+    x: 0.5
+    y: 70.0
+    z: 0.5
+    yaw: 0.0
+    pitch: 0.0
+
+portal:
+  cooldown-seconds: 5
+  require-permission: true
+  activation-item: "ECHO_SHARD"
+  auto-create-return-portal: true
+  fill-material: "NETHER_PORTAL"
+  prevent-vanilla-nether-travel: true
+  deepdark-block-all-nether-portals: true
+  platform-radius: 14
+
+permissions:
+  admin: "zyrox.deepdark.admin"
+  enter: "zyrox.deepdark.enter"
+  web: "zyrox.deepdark.web"

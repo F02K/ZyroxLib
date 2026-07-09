@@ -1,0 +1,11 @@
+economy:
+  material: "DIAMOND"
+  debug-vault: false
+
+storage:
+  sqlite-file: "zyrox-economy.db"
+
+permissions:
+  use: "zyrox.economy.use"
+  admin: "zyrox.economy.admin"
+  web: "zyrox.economy.web"

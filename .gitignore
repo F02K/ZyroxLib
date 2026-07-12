@@ -16,6 +16,7 @@
 # Package Files #
 *.jar
 !zyrox-end/gradle/wrapper/gradle-wrapper.jar
+!zyrox-enchants/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear

@@ -1,0 +1,21 @@
+name: ZyroxEnchants
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.enchants.plugin.ZyroxEnchantsPlugin
+api-version: '1.21'
+author: tecca
+softdepend:
+  - ZyroxAPI
+commands:
+  zenchants:
+    description: Gives overleveled vanilla enchanted books.
+    usage: /zenchants <give|reload>
+permissions:
+  zyrox.enchants.give:
+    description: Allows giving overleveled enchanted books.
+    default: op
+  zyrox.enchants.reload:
+    description: Allows reloading ZyroxEnchants.
+    default: op
+  zyrox.enchants.web:
+    description: Allows viewing ZyroxEnchants in the Zyrox dashboard.
+    default: op

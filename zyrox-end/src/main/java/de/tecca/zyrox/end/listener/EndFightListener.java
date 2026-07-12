@@ -5,6 +5,7 @@ import org.bukkit.World;
 import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -54,6 +55,14 @@ public final class EndFightListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
+        if (fightService.isObeliskGuardian(event.getEntity())
+                && event.getCause() == EntityDamageEvent.DamageCause.FALL) {
+            event.setCancelled(true);
+            return;
+        }
+        if (event.getEntity() instanceof Player player) {
+            event.setDamage(fightService.incomingPlayerDamage(player, event.getDamage()));
+        }
         if (!(event.getEntity() instanceof EnderDragon dragon)) {
             return;
         }
@@ -74,8 +83,22 @@ public final class EndFightListener implements Listener {
         Player player = playerFromDamager(event.getDamager()).orElse(null);
         if (event.getEntity() instanceof EnderCrystal crystal && fightService.isLinkedCrystal(crystal)) {
             event.setCancelled(true);
-            fightService.damageCrystalNode(crystal, player, crystalDamage(event.getDamager()), event.getDamager().getLocation());
+            double damage = crystalDamage(event.getDamager());
+            if (player != null) {
+                damage = fightService.outgoingPlayerDamage(player, damage);
+            }
+            fightService.damageCrystalNode(crystal, player, damage, event.getDamager().getLocation());
             return;
+        }
+
+        if (player != null) {
+            event.setDamage(fightService.outgoingPlayerDamage(player, event.getDamage()));
+            if (event.getEntity() instanceof LivingEntity guardian) {
+                fightService.handlePlayerHitGuardian(player, guardian);
+            }
+        }
+        if (event.getDamager() instanceof LivingEntity guardian && event.getEntity() instanceof Player target) {
+            event.setDamage(fightService.handleGuardianHitPlayer(guardian, target, event.getDamage()));
         }
 
         if (player == null) {

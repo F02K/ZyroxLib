@@ -126,55 +126,6 @@ public final class EconomyStorage implements AutoCloseable {
         return findAccountByKey(identity.playerKey());
     }
 
-    public synchronized long withdrawCashout(OfflinePlayer player, long requestedCents, long rateCents) throws SQLException {
-        if (requestedCents < 0 || rateCents <= 0) {
-            throw new IllegalArgumentException("Cashout amount and rate must be positive.");
-        }
-
-        EconomyIdentity identity = identity(player);
-        try {
-            connection.setAutoCommit(false);
-            migrateNameAccountToUuid(identity);
-            EconomyAccount account = findAccountByKey(identity.playerKey()).orElse(null);
-            if (account == null) {
-                connection.rollback();
-                return 0;
-            }
-
-            long total = account.changeBalanceCents() + account.payoutBalanceCents();
-            long maxWholeCents = (total / rateCents) * rateCents;
-            long requestedWholeCents = (requestedCents / rateCents) * rateCents;
-            long debitCents = Math.min(maxWholeCents, requestedWholeCents);
-            if (debitCents <= 0) {
-                connection.rollback();
-                return 0;
-            }
-
-            long payoutDebit = Math.min(account.payoutBalanceCents(), debitCents);
-            long changeDebit = debitCents - payoutDebit;
-            try (PreparedStatement statement = connection.prepareStatement("""
-                    UPDATE player_balances
-                    SET payout_balance_cents = payout_balance_cents - ?,
-                        change_balance_cents = change_balance_cents - ?,
-                        updated_at = ?
-                    WHERE player_key = ?
-                    """)) {
-                statement.setLong(1, payoutDebit);
-                statement.setLong(2, changeDebit);
-                statement.setString(3, Instant.now().toString());
-                statement.setString(4, identity.playerKey());
-                statement.executeUpdate();
-            }
-            connection.commit();
-            return debitCents;
-        } catch (SQLException exception) {
-            connection.rollback();
-            throw exception;
-        } finally {
-            connection.setAutoCommit(true);
-        }
-    }
-
     public synchronized EconomyLedgerSummary summary() throws SQLException {
         long change = 0;
         long payout = 0;

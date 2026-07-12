@@ -1,0 +1,21 @@
+enchanting:
+  max-level: 10
+
+permissions:
+  give: "zyrox.enchants.give"
+  reload: "zyrox.enchants.reload"
+  web: "zyrox.enchants.web"
+
+messages:
+  no-give-permission: "Du darfst keine verzauberten Buecher geben."
+  no-reload-permission: "Du darfst ZyroxEnchants nicht neu laden."
+  only-player-self-command: "Nur Spieler koennen sich selbst ein verzaubertes Buch geben. Nutze /zenchants give <spieler> <verzauberung> <level>."
+  player-not-found: "Der Spieler {player} ist nicht online."
+  invalid-enchantment: "Unbekannte Vanilla-Verzauberung: {enchantment}"
+  invalid-level: "Das Level muss zwischen 1 und {max_level} liegen."
+  inventory-full: "{player} hat keinen freien Inventarplatz."
+  give-success: "{player} hat ein Buch mit {enchantment} {level} erhalten."
+  reload-success: "ZyroxEnchants neu geladen."
+  command-help-give-self: "/zenchants give <verzauberung> <level>"
+  command-help-give-player: "/zenchants give <spieler> <verzauberung> <level>"
+  command-help-reload: "/zenchants reload"

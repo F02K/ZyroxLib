@@ -8,6 +8,24 @@ dragon-egg:
 
 fight:
   enabled: true
+  cinematics:
+    enabled: true
+    intensity: "cinematic"
+    tick-interval: 2
+    full-detail-range: 64.0
+    medium-detail-range: 128.0
+    maximum-view-range: 192.0
+    max-points-per-frame: 900
+    particle-density-multiplier: 1.0
+    sound-volume-multiplier: 1.0
+    ambient-frequency-multiplier: 1.0
+    phase-transition-seconds: 3.0
+    final-activation-seconds: 3.5
+    aftermath-seconds: 1.5
+    ritual-density: 1.0
+    phase-density: 1.0
+    attack-density: 1.0
+    anchor-density: 1.0
   first-ritual:
     enabled: true
     total-seconds: 90.0
@@ -15,6 +33,10 @@ fight:
     activation-seconds: 50.0
     finale-seconds: 8.0
     animation-interval-ticks: 4
+    gathering:
+      required-ratio: 0.75
+      hold-seconds: 10.0
+      particle-points: 72
   profiles:
     repeat:
       dragon-health-multiplier: 0.85
@@ -49,6 +71,8 @@ fight:
     final: "Finale Bindung"
   messages:
     ritual-start: "Die Ritualwirker rufen den Drachen."
+    gathering-bossbar: "Versammelt euch im Pfeilerkreis: %inside%/%required% (%seconds%s)"
+    ritual-paused-bossbar: "Ritual pausiert - kehrt in den Pfeilerkreis zurueck"
     ritual-bossbar: "Das Ritual erwacht"
     ritual-totem-bossbar: "Totem %current%/%total%"
     ritual-convergence-bossbar: "Die Energien vereinen sich"
@@ -57,6 +81,7 @@ fight:
     phase-totems: "Die Endkristalle binden ihre Macht an den Drachen."
     phase-escalation: "Das Ende wird instabil."
     phase-final: "Finale Anker binden den Drachen."
+    final-anchor-activated: "Der Portalanker erwacht und versiegelt den Drachen."
     dragon-exposed: "Der Drache ist verwundbar."
     node-fallen: "%node% ist gefallen."
     locked-indicator: "%node%\nVersiegelt - erwacht in Phase: %phase%"
@@ -66,12 +91,6 @@ fight:
     bossbar-escalation: "Phase: %phase%"
     bossbar-final: "Phase: %phase%"
     bossbar-exposed: "Der Drache ist verwundbar"
-    attack-breath-strafe: "Der Drache setzt zum Atemflug an."
-    attack-sky-crash: "Der Drache stuerzt vom Himmel."
-    attack-wing-ring: "Der Drache sammelt einen Fluegelschlag."
-    attack-void-grasp: "Die Leere greift nach euch."
-    attack-crystal-barrage: "Der Drache entfesselt eine Kristallsalve."
-    attack-perch-ritual: "Der Drache ruft ein Portalritual."
   node-names:
     none: "Endkristall"
     dragon-ward: "Drachenwacht"
@@ -126,15 +145,27 @@ fight:
       opening:
         enderman: 0
         shulker: 0
+        phantom: 0
+        vex: 0
+        obelisk: 0
       totems:
-        enderman: 3
+        enderman: 2
         shulker: 1
+        phantom: 4
+        vex: 4
+        obelisk: 0
       escalation:
         enderman: 2
-        shulker: 3
+        shulker: 2
+        phantom: 5
+        vex: 5
+        obelisk: 0
       final:
-        enderman: 3
-        shulker: 3
+        enderman: 2
+        shulker: 2
+        phantom: 6
+        vex: 6
+        obelisk: 0
     void-intercept:
       damage: 8.0
       weakness-seconds: 4.0
@@ -150,6 +181,34 @@ fight:
     crystal-ward:
       damage-reduction: 0.5
       duration-seconds: 4.0
+    phantom:
+      max-alive: 1
+      max-health: 30.0
+      dive-damage: 9.0
+      launch-velocity: 0.9
+      warning-seconds: 2.0
+      cooldown-seconds: 8.0
+      spawn-height: 14.0
+    vex:
+      max-alive: 1
+      max-health: 24.0
+      curse-damage: 6.0
+      curse-seconds: 6.0
+      outgoing-reduction: 0.15
+      incoming-increase: 0.30
+      cooldown-seconds: 7.0
+    obelisk:
+      max-alive: 10
+      max-health: 300.0
+      armor: 12.0
+      knockback-resistance: 0.8
+      attack-damage: 8.5
+      defense-range: 12.0
+      teleport-trigger-range: 16.0
+      wither-seconds: 5.0
+      wither-amplifier: 0
+      combo-step: 0.10
+      combo-cap: 0.50
   totems:
     assignment:
       mode: "shuffled-default-10"
@@ -241,6 +300,31 @@ fight:
     pillar-camping-y: 78.0
     pillar-camping-threshold-seconds: 20.0
   final-phase:
-    anchor-damage-reduction: 0.40
     exposed-damage-bonus: 0.20
     exposed-seconds: 15.0
+    anchor:
+      base-health: 300.0
+      health-per-participant: 30.0
+      attack-cooldown-seconds: 4.0
+      particle-points: 72
+      ground:
+        charge-seconds: 2.0
+        target-radius: 3.5
+        target-damage: 8.0
+        target-knockback: 0.7
+        wave-count: 3
+        wave-stagger-ticks: 14
+        wave-speed-per-tick: 0.8
+        wave-width: 1.5
+        max-radius: 48.0
+        wave-damage: 10.0
+        wave-knockback: 0.9
+      beam:
+        charge-seconds: 2.5
+        sweep-seconds: 4.0
+        radius: 48.0
+        width: 2.2
+        vertical-range: 8.0
+        damage: 7.0
+        knockback: 0.65
+        hit-cooldown-ticks: 10

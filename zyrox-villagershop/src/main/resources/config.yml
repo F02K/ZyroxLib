@@ -1,0 +1,101 @@
+storage:
+  sqlite-file: "zyrox-villagershop.db"
+
+villager-shop:
+  default-name: "Villager Shop"
+  default-profession: "NONE"
+  default-input-material: "EMERALD"
+  default-output-material: "BREAD"
+  default-max-uses: 16
+  default-unlimited: true
+  display-offset-y: 2.35
+  lock-distance-squared: 0.04
+  lock-period-ticks: 20
+  scan-radius: 4.0
+
+messages:
+  no-admin-permission: "Du darfst Villager-Shops nicht verwalten."
+  only-player-command: "Diesen Befehl können nur Spieler nutzen."
+  invalid-number: "Ungültige Zahl."
+  unknown-shop: "Dieser Villager-Shop existiert nicht."
+  look-at-villager: "Schaue zuerst einen Villager-Shop an."
+  spawn-success: "Villager-Shop #{shop_id} gespawnt."
+  edit-opened: "Editor geöffnet."
+  update-success: "Villager-Shop aktualisiert."
+  reset-uses-success: "Nutzungen zurückgesetzt."
+  trade-add-success: "Trade hinzugefügt."
+  trade-remove-success: "Trade entfernt."
+  trade-remove-last: "Der letzte Trade kann nicht entfernt werden."
+  remove-success: "Villager-Shop entfernt."
+  tp-success: "Villager-Shop #{shop_id} teleportiert."
+  name-success: "Villager-Shop umbenannt."
+  text-success: "Display-Text aktualisiert."
+  reload-success: "ZyroxVillagerShop neu geladen."
+  invalid-trade: "Setze mindestens Preis 1 und Ergebnis."
+  storage-failed: "Der Villager-Shop-Speicher ist gerade nicht erreichbar."
+  trade-info-header: "Villager-Shop #{shop_id}: {name}"
+  trade-info-position: "{world} {x} {y} {z}"
+  trade-info-offer: "{input_one}{input_two} -> {output}"
+  trade-info-limit: "Nutzungen: {uses}/{max_uses}"
+  trade-info-unlimited: "Nutzungen: unbegrenzt"
+  command-help-spawn: "/villagershop spawn [name]"
+  command-help-edit: "/villagershop edit [id]"
+  command-help-tp: "/villagershop tp <id>"
+  command-help-remove: "/villagershop remove <id>"
+  command-help-info: "/villagershop info [id]"
+  command-help-list: "/villagershop list"
+  command-help-name: "/villagershop name <id> <name>"
+  command-help-text: "/villagershop text <id> <text>"
+  command-help-reload: "/villagershop reload"
+
+gui:
+  editor:
+    title: "Villager-Shop #{shop_id}"
+    trade-previous-name: "Vorheriger Trade"
+    trade-next-name: "Nächster Trade"
+    trade-info-name: "Trade {trade_index}/{trade_count}"
+    trade-info-lore:
+      - "Bearbeite genau diesen Trade."
+      - "Speichern aktualisiert den Villager."
+    trade-select-lore:
+      - "Wechselt den bearbeiteten Trade."
+    trade-add-name: "Trade hinzufügen"
+    trade-add-lore:
+      - "Kopiert den aktuellen Trade"
+      - "als neue Vorlage."
+    trade-remove-name: "Trade entfernen"
+    trade-remove-lore:
+      - "Entfernt den aktuellen Trade."
+    input-one-name: "Preis 1"
+    input-two-name: "Preis 2 (optional)"
+    output-name: "Ergebnis"
+    empty-name: "Leer"
+    empty-lore:
+      - "Klicke mit einem Item in der Main Hand,"
+      - "um diesen Slot zu setzen."
+    item-lore:
+      - "Klicke mit leerer Main Hand,"
+      - "um diesen Slot zu leeren."
+    profession-name: "Beruf: {profession}"
+    profession-lore:
+      - "Klicke, um den Beruf zu wechseln."
+    uses-down-name: "Max. Nutzungen -1"
+    uses-info-name: "Max. Nutzungen"
+    uses-up-name: "Max. Nutzungen +1"
+    uses-lore:
+      - "Aktuell: {max_uses}"
+      - "Benutzt: {uses}"
+    unlimited-name: "Unbegrenzt: {unlimited}"
+    unlimited-lore:
+      - "Klicke zum Umschalten."
+    reset-uses-name: "Nutzungen zurücksetzen"
+    save-name: "Speichern"
+    save-lore:
+      - "Aktualisiert den echten Villager-Trade."
+    delete-name: "Löschen"
+    delete-lore:
+      - "Entfernt den Villager-Shop."
+
+permissions:
+  admin: "zyrox.villagershop.admin"
+  web: "zyrox.villagershop.web"

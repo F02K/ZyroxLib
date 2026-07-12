@@ -3,19 +3,16 @@ version: 0.1.0-SNAPSHOT
 main: de.tecca.zyrox.economy.plugin.ZyroxEconomyPlugin
 api-version: '1.21'
 author: tecca
+load: STARTUP
 depend:
   - ZyroxAPI
-  - Vault
 libraries:
   - org.xerial:sqlite-jdbc:3.53.2.0
 commands:
   economy:
-    description: Shows and manages the Zyrox diamond economy.
-    usage: /economy <balance|cashout|reload>
+    description: Manages the Zyrox diamond payment service.
+    usage: /economy reload
 permissions:
-  zyrox.economy.use:
-    description: Allows using ZyroxEconomy player commands.
-    default: true
   zyrox.economy.admin:
     description: Allows managing ZyroxEconomy.
     default: op

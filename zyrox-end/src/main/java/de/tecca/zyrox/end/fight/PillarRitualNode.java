@@ -79,7 +79,7 @@ public final class PillarRitualNode {
 
     public void assignType(RitualNodeType type) {
         this.type = type;
-        this.unlocked = type == RitualNodeType.FINAL_ANCHOR || type.unlockedIn(FightPhase.OPENING);
+        this.unlocked = type.unlockedIn(FightPhase.OPENING);
     }
 
     public boolean active() {

@@ -5,7 +5,7 @@ public final class EndFightDamageCalculator {
     public double dragonDamage(double baseDamage, EndFightSession session, EndFightConfig config) {
         double damage = Math.max(0.0D, baseDamage);
         if (session.finalPhaseActive() && session.finalAnchorCount() > 0) {
-            damage *= 1.0D - config.finalAnchorReduction();
+            return 0.0D;
         }
 
         double shieldReduction = Math.min(

@@ -1,0 +1,114 @@
+storage:
+  sqlite-file: "zyrox-shop.db"
+
+shop:
+  default-price-diamonds: 1
+  hologram-text-offset-y: 1.5
+  hologram-text-scale: 1.0
+  item-display-offset-y: 1.25
+  item-display-scale: 0.5
+
+holograms:
+  backend: "auto"
+  lines:
+    - "Besitzer: {owner}"
+    - "{bundle}x {item}"
+    - "Preis: {price}"
+    - "Lager: {stock}"
+
+messages:
+  create-not-chest: "Dieser Block ist keine Truhe."
+  create-not-empty: "Erstelle Shops nur aus leeren Truhen. Das Lager wird virtuell gespeichert."
+  create-hold-item: "Halte das Item in der Hand, das dieser Shop verkaufen soll."
+  create-success: "Shop erstellt. Lege nun virtuelles Lager im Editor ein."
+  create-failed: "Hier existiert bereits ein Shop oder der Speicher ist nicht erreichbar."
+  no-create-permission: "Du darfst keine Shops erstellen."
+  no-use-permission: "Du darfst keine Shops benutzen."
+  only-owner-edit: "Nur der Besitzer kann diesen Shop bearbeiten."
+  only-owner-break: "Nur der Besitzer kann diesen Shop abbauen."
+  shop-break-protected: "Shop-Truhen sind geschuetzt. Nutze den Editor oder /shop remove, um den Shop zu entfernen."
+  own-shop-buy: "Du kannst nicht bei deinem eigenen Shop einkaufen."
+  shop-updated: "Der Shop wurde aktualisiert. Bitte versuche es erneut."
+  no-bundles: "Wähle mindestens ein Paket aus."
+  no-stock: "Dieser Shop hat nicht genug Lagerbestand."
+  no-space-buy: "Du hast nicht genug Platz im Inventar."
+  no-diamonds: "Du brauchst {price}."
+  purchase-success: "Du hast {amount} Item(s) für {price} gekauft."
+  purchase-failed-paid: "Die Zahlung war erfolgreich, aber die Items konnten nicht gegeben werden. Bitte melde dich beim Team."
+  update-template-empty-hand: "Halte zuerst das neue Shop-Item in der Hand."
+  update-template-stock: "Entferne erst den bestehenden Lagerbestand, bevor du das Item änderst."
+  update-template-success: "Shop-Item aktualisiert."
+  update-offer-success: "Shop-Angebot aktualisiert."
+  no-matching-stock: "Du hast keine passenden Items zum Einlagern."
+  stock-deposit-success: "{amount} Item(s) ins virtuelle Lager eingelagert."
+  stock-withdraw-empty: "Dieser Shop hat keinen Lagerbestand zum Auszahlen."
+  no-space-stock: "Du brauchst mehr Platz für den Lagerbestand."
+  stock-withdraw-success: "{amount} Item(s) aus dem virtuellen Lager entnommen."
+  stock-withdraw-failed: "Der Lagerbestand hat sich geändert. Bitte versuche es erneut."
+  revenue-empty: "Dieser Shop hat keine gespeicherten Diamanten."
+  revenue-withdraw-success: "{amount} ausgezahlt."
+  revenue-withdraw-failed: "Die Einnahmen haben sich geändert. Bitte versuche es erneut."
+  delete-blocked: "Entnimm erst Lagerbestand und gespeicherte Diamanten, bevor du den Shop löschst."
+  delete-success: "Shop entfernt."
+  action-busy: "Bitte warte einen Moment."
+  storage-failed: "Der Shop-Speicher ist gerade nicht erreichbar."
+  no-admin-permission: "Du darfst Shops nicht verwalten."
+  only-player-command: "Diesen Befehl können nur Spieler nutzen."
+  look-at-shop: "Schaue zuerst eine Shop-Truhe an."
+  shop-info-header: "Shop #{shop_id} von {owner}"
+  shop-info-offer: "{bundle} Item(s) für {price}"
+  shop-info-stock: "Lager: {stock}, gespeicherte Diamanten: {revenue}"
+  command-help-info: "/shop info"
+  command-help-remove: "/shop remove"
+  command-help-reload: "/shop reload"
+  reload-success: "ZyroxShop neu geladen."
+
+gui:
+  editor:
+    title: "Shop Editor #{shop_id}"
+    selling-name: "Verkauft: {item}"
+    selling-lore:
+      - "Klicke mit einem Item in der Hand,"
+      - "um das Shop-Item zu ersetzen."
+      - "Das Lager muss dafür leer sein."
+    price-down-name: "Preis -1"
+    price-info-name: "Preis"
+    price-up-name: "Preis +1"
+    bundle-down-name: "Paket -1"
+    bundle-info-name: "Paket"
+    bundle-up-name: "Paket +1"
+    current-price: "Aktuell: {price}"
+    current-bundle: "Aktuell: {bundle} Item(s)"
+    deposit-name: "Alle passenden Items einlagern"
+    deposit-lore:
+      - "Passende Items werden aus deinem"
+      - "Inventar entfernt und virtuell gespeichert."
+    withdraw-bundle-name: "Ein Paket entnehmen"
+    withdraw-bundle-lore:
+      - "Entnimmt {bundle} Item(s)."
+    withdraw-all-name: "Alles entnehmen"
+    withdraw-all-lore:
+      - "Lager: {stock}"
+    revenue-name: "Diamanten auszahlen"
+    revenue-lore:
+      - "Gespeichert: {revenue}"
+    delete-name: "Shop löschen"
+    delete-lore:
+      - "Funktioniert nur ohne Lager"
+      - "und ohne gespeicherte Diamanten."
+  purchase:
+    title: "Shop #{shop_id}"
+    item-lore:
+      - "Preis: {price}"
+      - "Lager: {stock}"
+    buy-name: "{bundles} Paket(e) kaufen"
+    buy-max-name: "Maximum kaufen"
+    buy-lore:
+      - "{amount} Item(s)"
+      - "{price}"
+
+permissions:
+  use: "zyrox.shop.use"
+  create: "zyrox.shop.create"
+  admin: "zyrox.shop.admin"
+  web: "zyrox.shop.web"

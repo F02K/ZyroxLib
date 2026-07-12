@@ -1,28 +1,21 @@
 package de.tecca.zyrox.economy.service;
 
-import de.tecca.zyrox.economy.storage.EconomyAccount;
-import de.tecca.zyrox.economy.storage.EconomyStorage;
+import de.tecca.zyrox.economy.api.ZyroxDiamondPaymentService;
 import org.bukkit.Material;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.sql.SQLException;
 import java.util.Map;
-import java.util.Optional;
 
-public final class DiamondEconomyService {
+public final class DiamondEconomyService implements ZyroxDiamondPaymentService {
 
     private final JavaPlugin plugin;
-    private final EconomyStorage storage;
     private Material material = Material.DIAMOND;
-    private boolean debugVault;
 
-    public DiamondEconomyService(JavaPlugin plugin, EconomyStorage storage) {
+    public DiamondEconomyService(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.storage = storage;
         reload();
     }
 
@@ -34,241 +27,113 @@ public final class DiamondEconomyService {
             configuredMaterial = Material.DIAMOND;
         }
         material = configuredMaterial;
-        debugVault = plugin.getConfig().getBoolean("economy.debug-vault", false);
     }
 
-    public Material material() {
+    @Override
+    public Material currencyMaterial() {
         return material;
     }
 
-    public long inventoryBalanceCents(OfflinePlayer offlinePlayer) {
-        if (offlinePlayer == null) {
-            return 0;
-        }
-        Player player = offlinePlayer.getPlayer();
+    public Material material() {
+        return currencyMaterial();
+    }
+
+    @Override
+    public long countDiamonds(Player player) {
         if (player == null) {
             return 0;
         }
-        return EconomyFormatter.diamondUnits(countItems(player.getInventory()));
+        return DiamondInventoryTransaction.count(player.getInventory(), material);
     }
 
-    public boolean hasInventoryBalance(OfflinePlayer offlinePlayer, long amountCents) {
-        if (offlinePlayer == null) {
-            return false;
-        }
-        Player player = offlinePlayer.getPlayer();
-        if (player == null || amountCents < 0) {
-            return false;
-        }
-        try {
-            return countItems(player.getInventory()) >= exactRequiredItems(amountCents);
-        } catch (IllegalArgumentException | ArithmeticException exception) {
-            return false;
-        }
+    @Override
+    public boolean hasDiamonds(Player player, long diamonds) {
+        return player != null && diamonds >= 0 && countDiamonds(player) >= diamonds;
     }
 
-    public EconomyOperationResult withdraw(OfflinePlayer offlinePlayer, long amountCents) {
-        if (amountCents < 0) {
-            return EconomyOperationResult.failure("Cannot withdraw a negative amount.", inventoryBalanceCents(offlinePlayer));
-        }
-        if (amountCents == 0) {
-            return EconomyOperationResult.success(0, inventoryBalanceCents(offlinePlayer));
-        }
-        if (amountCents % EconomyFormatter.DIAMOND_UNIT != 0) {
-            return EconomyOperationResult.failure("Withdrawal amount must be whole diamonds.", inventoryBalanceCents(offlinePlayer));
-        }
-
-        Player player = offlinePlayer.getPlayer();
+    @Override
+    public PaymentResult withdrawDiamonds(Player player, long diamonds, DiamondCommit commit) {
         if (player == null) {
-            return EconomyOperationResult.failure("Player must be online to pay with inventory diamonds.", 0);
+            return PaymentResult.failure("Player must be online to pay with diamonds.", 0);
+        }
+        if (diamonds < 0) {
+            return PaymentResult.failure("Cannot withdraw a negative diamond amount.", countDiamonds(player));
+        }
+        if (diamonds == 0) {
+            return PaymentResult.success(0, countDiamonds(player));
+        }
+        if (diamonds > Integer.MAX_VALUE) {
+            return PaymentResult.failure("Diamond amount is too large.", countDiamonds(player));
         }
 
-        int requiredItems;
-        try {
-            requiredItems = exactRequiredItems(amountCents);
-        } catch (ArithmeticException | IllegalArgumentException exception) {
-            return EconomyOperationResult.failure("Withdrawal amount must be whole diamonds.", inventoryBalanceCents(player));
+        DiamondInventoryTransaction.Result transaction = DiamondInventoryTransaction.withdraw(
+                player.getInventory(),
+                material,
+                Math.toIntExact(diamonds),
+                commit::commit
+        );
+        if (transaction.success()) {
+            return PaymentResult.success(diamonds, countDiamonds(player));
         }
 
-        int availableItems = countItems(player.getInventory());
-        if (availableItems < requiredItems) {
-            return EconomyOperationResult.failure("Not enough inventory diamonds.", inventoryBalanceCents(player));
-        }
-
-        int removedItems = removeItems(player.getInventory(), requiredItems);
-        if (removedItems != requiredItems) {
-            refundItems(player, removedItems);
-            return EconomyOperationResult.failure("Could not remove the exact diamond amount.", inventoryBalanceCents(player));
-        }
-
-        try {
-            storage.recordWithdrawal(player, amountCents, 0);
-        } catch (SQLException exception) {
-            refundItems(player, requiredItems);
-            plugin.getLogger().warning("Could not record economy withdrawal: " + exception.getMessage());
-            return EconomyOperationResult.failure("Could not record economy withdrawal.", inventoryBalanceCents(player));
-        }
-
-        if (debugVault) {
-            int afterItems = countItems(player.getInventory());
-            plugin.getLogger().info("Vault withdraw: player=" + player.getName()
-                    + " amount=" + EconomyFormatter.diamonds(amountCents)
-                    + " before=" + availableItems
-                    + " removed=" + removedItems
-                    + " after=" + afterItems);
-        }
-
-        return EconomyOperationResult.success(EconomyFormatter.amount(amountCents), inventoryBalanceCents(player));
+        logWithdrawalFailure(player, diamonds, transaction);
+        String message = switch (transaction.status()) {
+            case INSUFFICIENT_ITEMS -> "Not enough diamonds.";
+            case COMMIT_FAILED -> "Could not complete the diamond payment.";
+            case INVALID_AMOUNT -> "Diamond amount must be positive.";
+            default -> "Could not remove the exact diamond amount.";
+        };
+        return PaymentResult.failure(message, countDiamonds(player));
     }
 
-    public EconomyOperationResult deposit(OfflinePlayer offlinePlayer, long amountCents) {
-        if (amountCents < 0) {
-            return EconomyOperationResult.failure("Cannot deposit a negative amount.", inventoryBalanceCents(offlinePlayer));
+    @Override
+    public PaymentResult giveDiamonds(Player player, long diamonds) {
+        if (player == null) {
+            return PaymentResult.failure("Player must be online to receive diamonds.", 0);
         }
-        if (amountCents == 0) {
-            return EconomyOperationResult.success(0, inventoryBalanceCents(offlinePlayer));
+        if (diamonds < 0) {
+            return PaymentResult.failure("Cannot give a negative diamond amount.", countDiamonds(player));
         }
-        if (amountCents % EconomyFormatter.DIAMOND_UNIT != 0) {
-            return EconomyOperationResult.failure("Deposit amount must be whole diamonds.", inventoryBalanceCents(offlinePlayer));
+        if (diamonds == 0) {
+            return PaymentResult.success(0, countDiamonds(player));
+        }
+        if (diamonds > Integer.MAX_VALUE) {
+            return PaymentResult.failure("Diamond amount is too large.", countDiamonds(player));
         }
 
-        long reserveBefore = -1;
-        try {
-            if (debugVault) {
-                reserveBefore = storage.shopReserveBalance();
+        ItemStack payout = new ItemStack(material, Math.toIntExact(diamonds));
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(payout);
+        if (!leftovers.isEmpty()) {
+            int leftoverAmount = leftovers.values().stream().mapToInt(ItemStack::getAmount).sum();
+            int paid = Math.toIntExact(diamonds) - leftoverAmount;
+            if (paid > 0) {
+                player.getInventory().removeItem(new ItemStack(material, paid));
             }
-            boolean stored = storage.recordDeposit(offlinePlayer, amountCents);
-            if (!stored) {
-                return EconomyOperationResult.failure("Deposit is not covered by collected shop reserve.", inventoryBalanceCents(offlinePlayer));
-            }
-        } catch (SQLException exception) {
-            plugin.getLogger().warning("Could not record economy deposit: " + exception.getMessage());
-            return EconomyOperationResult.failure("Could not record economy deposit.", inventoryBalanceCents(offlinePlayer));
+            return PaymentResult.failure("You need more inventory space for these diamonds.", countDiamonds(player));
         }
-
-        if (debugVault) {
-            try {
-                long reserveAfter = storage.shopReserveBalance();
-                plugin.getLogger().info("Vault deposit: player=" + offlinePlayer.getName()
-                        + " amount=" + EconomyFormatter.diamonds(amountCents)
-                        + " reserveBefore=" + EconomyFormatter.diamonds(reserveBefore)
-                        + " reserveAfter=" + EconomyFormatter.diamonds(reserveAfter));
-            } catch (SQLException exception) {
-                plugin.getLogger().info("Vault deposit: player=" + offlinePlayer.getName()
-                        + " amount=" + EconomyFormatter.diamonds(amountCents));
-            }
-        }
-
-        return EconomyOperationResult.success(EconomyFormatter.amount(amountCents), inventoryBalanceCents(offlinePlayer));
+        return PaymentResult.success(diamonds, countDiamonds(player));
     }
 
-    public Optional<EconomyAccount> account(OfflinePlayer player) throws SQLException {
-        return storage.findAccount(player);
+    @Override
+    public String formatDiamonds(long diamonds) {
+        return diamonds + " diamond" + (diamonds == 1 ? "" : "s");
     }
 
-    public CashoutResult cashout(Player player, Optional<Long> requestedCents) {
-        long availableCents;
-        try {
-            EconomyAccount account = storage.findAccount(player).orElse(null);
-            availableCents = account == null ? 0 : account.changeBalanceCents() + account.payoutBalanceCents();
-        } catch (SQLException exception) {
-            plugin.getLogger().warning("Could not load economy account: " + exception.getMessage());
-            return CashoutResult.failure("Could not load your economy account.");
-        }
-
-        long targetCents = requestedCents.orElse(availableCents);
-        long wholeCents = (Math.min(availableCents, targetCents) / EconomyFormatter.DIAMOND_UNIT) * EconomyFormatter.DIAMOND_UNIT;
-        if (wholeCents <= 0) {
-            return CashoutResult.failure("No whole " + material.name().toLowerCase() + " payout is available.");
-        }
-
-        int items = Math.toIntExact(wholeCents / EconomyFormatter.DIAMOND_UNIT);
-        if (freeItemCapacity(player.getInventory()) < items) {
-            return CashoutResult.failure("You need space for " + items + " item(s) before cashing out.");
-        }
-
-        long paidCents;
-        try {
-            paidCents = storage.withdrawCashout(player, wholeCents, EconomyFormatter.DIAMOND_UNIT);
-        } catch (SQLException exception) {
-            plugin.getLogger().warning("Could not record economy cashout: " + exception.getMessage());
-            return CashoutResult.failure("Could not record economy cashout.");
-        }
-
-        if (paidCents <= 0) {
-            return CashoutResult.failure("No whole " + material.name().toLowerCase() + " payout is available.");
-        }
-
-        int paidItems = Math.toIntExact(paidCents / EconomyFormatter.DIAMOND_UNIT);
-        player.getInventory().addItem(new ItemStack(material, paidItems));
-        return CashoutResult.success(paidCents, paidItems);
-    }
-
-    private int exactRequiredItems(long amountCents) {
-        if (amountCents < 0 || amountCents % EconomyFormatter.DIAMOND_UNIT != 0) {
-            throw new IllegalArgumentException("Amount must be whole diamonds.");
-        }
-        return Math.toIntExact(amountCents / EconomyFormatter.DIAMOND_UNIT);
-    }
-
-    private int countItems(Inventory inventory) {
-        int count = 0;
-        for (ItemStack item : inventory.getStorageContents()) {
-            if (item != null && item.getType() == material) {
-                count += item.getAmount();
-            }
-        }
-        return count;
-    }
-
-    private int removeItems(Inventory inventory, int amount) {
-        int remaining = amount;
-        ItemStack[] contents = inventory.getStorageContents();
-        for (int index = 0; index < contents.length && remaining > 0; index++) {
-            ItemStack item = contents[index];
-            if (item == null || item.getType() != material) {
-                continue;
-            }
-
-            int taken = Math.min(item.getAmount(), remaining);
-            item.setAmount(item.getAmount() - taken);
-            if (item.getAmount() <= 0) {
-                contents[index] = null;
-            }
-            remaining -= taken;
-        }
-        inventory.setStorageContents(contents);
-        return amount - remaining;
-    }
-
-    private void refundItems(Player player, int amount) {
-        Map<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(material, amount));
-        for (ItemStack item : leftover.values()) {
-            player.getWorld().dropItemNaturally(player.getLocation(), item);
-        }
-    }
-
-    private int freeItemCapacity(Inventory inventory) {
-        int capacity = 0;
-        int maxStackSize = material.getMaxStackSize();
-        for (ItemStack item : inventory.getStorageContents()) {
-            if (item == null || item.getType().isAir()) {
-                capacity += maxStackSize;
-            } else if (item.getType() == material) {
-                capacity += Math.max(0, maxStackSize - item.getAmount());
-            }
-        }
-        return capacity;
-    }
-
-    public record EconomyOperationResult(boolean success, double amount, double balance, String message) {
-
-        public static EconomyOperationResult success(double amount, long balanceCents) {
-            return new EconomyOperationResult(true, amount, EconomyFormatter.amount(balanceCents), "");
-        }
-
-        public static EconomyOperationResult failure(String message, long balanceCents) {
-            return new EconomyOperationResult(false, 0, EconomyFormatter.amount(balanceCents), message);
-        }
+    private void logWithdrawalFailure(
+            Player player,
+            long requestedDiamonds,
+            DiamondInventoryTransaction.Result transaction
+    ) {
+        String cause = transaction.cause() == null
+                ? ""
+                : " cause=" + transaction.cause().getMessage();
+        plugin.getLogger().severe("Diamond withdrawal failed: player=" + player.getName()
+                + " requested=" + formatDiamonds(requestedDiamonds)
+                + " status=" + transaction.status()
+                + " before=" + transaction.beforeItems()
+                + " observedAfter=" + transaction.observedAfterItems()
+                + " final=" + transaction.finalItems()
+                + " rollbackVerified=" + transaction.rollbackVerified()
+                + cause);
     }
 }

@@ -1,0 +1,26 @@
+name: ZyroxShop
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.shop.plugin.ZyroxShopPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+  - ZyroxEconomy
+softdepend:
+  - DecentHolograms
+libraries:
+  - org.xerial:sqlite-jdbc:3.53.2.0
+commands:
+  shop:
+    description: Manages Zyrox chest shops.
+    usage: /shop <reload|remove|info>
+permissions:
+  zyrox.shop.use:
+    description: Allows buying from Zyrox shops.
+    default: true
+  zyrox.shop.create:
+    description: Allows creating and managing own Zyrox shops.
+    default: true
+  zyrox.shop.admin:
+    description: Allows administering all Zyrox shops.
+    default: op

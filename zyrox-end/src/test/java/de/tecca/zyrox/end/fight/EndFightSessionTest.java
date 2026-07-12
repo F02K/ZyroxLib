@@ -13,6 +13,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class EndFightSessionTest {
 
     @Test
+    void obeliskComboScalesByTenPercentAndCapsAtFiftyPercent() {
+        assertEquals(1.0D, EndFightService.obeliskComboMultiplier(0, 0.10D, 0.50D), 0.0001D);
+        assertEquals(1.3D, EndFightService.obeliskComboMultiplier(3, 0.10D, 0.50D), 0.0001D);
+        assertEquals(1.5D, EndFightService.obeliskComboMultiplier(12, 0.10D, 0.50D), 0.0001D);
+    }
+
+    @Test
     void ritualFacingDirectionPointsFromPillarToCenter() {
         Location pillar = new Location(null, 20.0D, 82.0D, -10.0D);
         Location center = new Location(null, 0.0D, 66.0D, 0.0D);
@@ -120,18 +127,21 @@ final class EndFightSessionTest {
     }
 
     @Test
-    void temporaryFinalAnchorBecomesActiveAndCountedAfterBinding() {
+    void finalAnchorStaysLockedUntilFinalPhaseUnlock() {
         EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
         PillarRitualNode node = new PillarRitualNode(UUID.randomUUID(), new org.bukkit.Location(null, 0.0D, 80.0D, 0.0D), null);
         node.bindCrystal(UUID.randomUUID(), true);
         node.setHealth(50.0D);
         node.assignType(RitualNodeType.FINAL_ANCHOR);
         session.addNode(node);
-        session.updatePhase(20.0D, 100.0D);
-
         assertTrue(node.active());
+        assertTrue(node.locked());
         assertTrue(node.temporaryCrystal());
         assertEquals(1, session.temporaryCrystalCount());
+        assertEquals(0, session.finalAnchorCount());
+
+        session.updatePhase(20.0D, 100.0D);
+        assertTrue(node.unlockFor(FightPhase.FINAL));
         assertEquals(1, session.finalAnchorCount());
     }
 
@@ -185,6 +195,29 @@ final class EndFightSessionTest {
         assertEquals(playerId, session.focusedPlayer().orElseThrow());
         session.setTick(81L);
         assertTrue(session.focusedPlayer().isEmpty());
+    }
+
+    @Test
+    void guardianBudgetResetStartsOneFreshFiniteBudget() {
+        EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
+        session.beginGuardianPhase(FightPhase.FINAL);
+        session.markGuardianSpawned(UUID.randomUUID());
+        session.markGuardianSpawned(UUID.randomUUID());
+        assertEquals(2, session.guardianBudgetConsumed(FightPhase.FINAL));
+
+        session.resetGuardianBudget(FightPhase.FINAL);
+        assertEquals(0, session.guardianBudgetConsumed(FightPhase.FINAL));
+
+        session.markGuardianSpawned(UUID.randomUUID());
+        assertEquals(1, session.guardianBudgetConsumed(FightPhase.FINAL));
+    }
+
+    @Test
+    void finalAnchorDestructionCanOnlyTriggerOnce() {
+        EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
+
+        assertTrue(session.markFinalAnchorDestroyed());
+        assertFalse(session.markFinalAnchorDestroyed());
     }
 
     @Test
@@ -321,7 +354,6 @@ final class EndFightSessionTest {
                 12.0D,
                 0.15D,
                 0.45D,
-                0.40D,
                 0.20D,
                 300L,
                 900L,

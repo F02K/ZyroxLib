@@ -44,6 +44,7 @@ public final class EndFightSession {
     private int guardianBudgetConsumed;
     private double lastAllowedDragonHealth = -1.0D;
     private long exposedUntilTick = -1L;
+    private boolean finalAnchorDestroyed;
 
     public EndFightSession(UUID dragonUniqueId, String worldName) {
         this(dragonUniqueId, worldName, FightProfile.FIRST, FightActivationState.ACTIVE);
@@ -300,6 +301,24 @@ public final class EndFightSession {
         return activeNodeCount(RitualNodeType.FINAL_ANCHOR);
     }
 
+    public Optional<PillarRitualNode> finalAnchor() {
+        return nodes.values().stream()
+                .filter(node -> node.type() == RitualNodeType.FINAL_ANCHOR)
+                .findFirst();
+    }
+
+    public boolean markFinalAnchorDestroyed() {
+        if (finalAnchorDestroyed) {
+            return false;
+        }
+        finalAnchorDestroyed = true;
+        return true;
+    }
+
+    public boolean finalAnchorDestroyed() {
+        return finalAnchorDestroyed;
+    }
+
     public boolean finalPhaseActive() {
         return phase == FightPhase.FINAL;
     }
@@ -391,6 +410,11 @@ public final class EndFightSession {
     public void beginGuardianPhase(FightPhase phase) {
         guardianBudgetPhase = phase;
         guardianBudgetConsumed = guardianUniqueIds.size();
+    }
+
+    public void resetGuardianBudget(FightPhase phase) {
+        guardianBudgetPhase = phase;
+        guardianBudgetConsumed = 0;
     }
 
     public int guardianBudgetConsumed(FightPhase phase) {

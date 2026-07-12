@@ -13,7 +13,6 @@ public record EndFightConfig(
         double totemHealthPerParticipant,
         double shieldReductionPerTotem,
         double shieldReductionCap,
-        double finalAnchorReduction,
         double exposedBonus,
         long exposedTicks,
         long eventBaseCooldownTicks,
@@ -105,7 +104,8 @@ public record EndFightConfig(
         double wingRingEngageRange,
         double wingRingImpactRange,
         double crystalBarrageEngageRange,
-        double crystalBarrageImpactRange
+        double crystalBarrageImpactRange,
+        FinalAnchorConfig finalAnchor
 ) {
 
     public EndFightConfig(
@@ -119,7 +119,6 @@ public record EndFightConfig(
             double totemHealthPerParticipant,
             double shieldReductionPerTotem,
             double shieldReductionCap,
-            double finalAnchorReduction,
             double exposedBonus,
             long exposedTicks,
             long eventBaseCooldownTicks,
@@ -143,7 +142,6 @@ public record EndFightConfig(
                 totemHealthPerParticipant,
                 shieldReductionPerTotem,
                 shieldReductionCap,
-                finalAnchorReduction,
                 exposedBonus,
                 exposedTicks,
                 eventBaseCooldownTicks,
@@ -235,7 +233,8 @@ public record EndFightConfig(
                 48.0D,
                 22.0D,
                 120.0D,
-                96.0D
+                96.0D,
+                FinalAnchorConfig.defaults()
         );
     }
 
@@ -251,7 +250,6 @@ public record EndFightConfig(
                 config.getDouble("fight.totems.health-per-participant", 12.0D),
                 config.getDouble("fight.totems.shield-reduction-per-totem", 0.15D),
                 config.getDouble("fight.totems.shield-reduction-cap", 0.45D),
-                config.getDouble("fight.final-phase.anchor-damage-reduction", 0.40D),
                 config.getDouble("fight.final-phase.exposed-damage-bonus", 0.20D),
                 seconds(config.getDouble("fight.final-phase.exposed-seconds", 15.0D)),
                 seconds(config.getDouble("fight.arena-events.base-cooldown-seconds", 45.0D)),
@@ -343,7 +341,8 @@ public record EndFightConfig(
                 config.getDouble("fight.attacks.wing-ring.engage-range", 48.0D),
                 config.getDouble("fight.attacks.wing-ring.impact-range", 22.0D),
                 config.getDouble("fight.attacks.crystal-barrage.engage-range", 120.0D),
-                config.getDouble("fight.attacks.crystal-barrage.impact-range", 96.0D)
+                config.getDouble("fight.attacks.crystal-barrage.impact-range", 96.0D),
+                FinalAnchorConfig.from(config)
         );
     }
 
@@ -363,6 +362,111 @@ public record EndFightConfig(
         return Math.max(1L, Math.round(seconds * 20.0D));
     }
 
+    public record FinalAnchorConfig(
+            double baseHealth,
+            double healthPerParticipant,
+            long attackCooldownTicks,
+            long groundChargeTicks,
+            double targetCircleRadius,
+            double targetCircleDamage,
+            double targetCircleKnockback,
+            int waveCount,
+            long waveStaggerTicks,
+            double waveSpeedPerTick,
+            double waveWidth,
+            double waveMaxRadius,
+            double waveDamage,
+            double waveKnockback,
+            long beamChargeTicks,
+            long beamSweepTicks,
+            double beamRadius,
+            double beamWidth,
+            double beamVerticalRange,
+            double beamDamage,
+            double beamKnockback,
+            long beamHitCooldownTicks,
+            int particlePoints
+    ) {
+
+        public static FinalAnchorConfig defaults() {
+            return new FinalAnchorConfig(
+                    300.0D,
+                    30.0D,
+                    seconds(4.0D),
+                    seconds(2.0D),
+                    3.5D,
+                    8.0D,
+                    0.7D,
+                    3,
+                    14L,
+                    0.8D,
+                    1.5D,
+                    48.0D,
+                    10.0D,
+                    0.9D,
+                    seconds(2.5D),
+                    seconds(4.0D),
+                    48.0D,
+                    2.2D,
+                    8.0D,
+                    7.0D,
+                    0.65D,
+                    10L,
+                    72
+            );
+        }
+
+        public static FinalAnchorConfig from(FileConfiguration config) {
+            FinalAnchorConfig defaults = defaults();
+            return new FinalAnchorConfig(
+                    positive(config.getDouble("fight.final-phase.anchor.base-health", defaults.baseHealth()), 1.0D),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.health-per-participant", defaults.healthPerParticipant())),
+                    seconds(config.getDouble("fight.final-phase.anchor.attack-cooldown-seconds", defaults.attackCooldownTicks() / 20.0D)),
+                    seconds(config.getDouble("fight.final-phase.anchor.ground.charge-seconds", defaults.groundChargeTicks() / 20.0D)),
+                    positive(config.getDouble("fight.final-phase.anchor.ground.target-radius", defaults.targetCircleRadius()), 0.5D),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.ground.target-damage", defaults.targetCircleDamage())),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.ground.target-knockback", defaults.targetCircleKnockback())),
+                    Math.max(1, config.getInt("fight.final-phase.anchor.ground.wave-count", defaults.waveCount())),
+                    Math.max(1L, config.getLong("fight.final-phase.anchor.ground.wave-stagger-ticks", defaults.waveStaggerTicks())),
+                    positive(config.getDouble("fight.final-phase.anchor.ground.wave-speed-per-tick", defaults.waveSpeedPerTick()), 0.05D),
+                    positive(config.getDouble("fight.final-phase.anchor.ground.wave-width", defaults.waveWidth()), 0.25D),
+                    positive(config.getDouble("fight.final-phase.anchor.ground.max-radius", defaults.waveMaxRadius()), 1.0D),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.ground.wave-damage", defaults.waveDamage())),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.ground.wave-knockback", defaults.waveKnockback())),
+                    seconds(config.getDouble("fight.final-phase.anchor.beam.charge-seconds", defaults.beamChargeTicks() / 20.0D)),
+                    seconds(config.getDouble("fight.final-phase.anchor.beam.sweep-seconds", defaults.beamSweepTicks() / 20.0D)),
+                    positive(config.getDouble("fight.final-phase.anchor.beam.radius", defaults.beamRadius()), 1.0D),
+                    positive(config.getDouble("fight.final-phase.anchor.beam.width", defaults.beamWidth()), 0.25D),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.beam.vertical-range", defaults.beamVerticalRange())),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.beam.damage", defaults.beamDamage())),
+                    nonNegative(config.getDouble("fight.final-phase.anchor.beam.knockback", defaults.beamKnockback())),
+                    Math.max(1L, config.getLong("fight.final-phase.anchor.beam.hit-cooldown-ticks", defaults.beamHitCooldownTicks())),
+                    Math.max(24, config.getInt("fight.final-phase.anchor.particle-points", defaults.particlePoints()))
+            );
+        }
+
+        public double health(int participantCount) {
+            return baseHealth + healthPerParticipant * Math.max(1, participantCount);
+        }
+
+        public long groundExecutionTicks() {
+            return groundExecutionTicks(waveMaxRadius);
+        }
+
+        public long groundExecutionTicks(double radius) {
+            long lastWaveDelay = (long) (waveCount - 1) * waveStaggerTicks;
+            return lastWaveDelay + Math.max(1L, (long) Math.ceil(Math.max(0.0D, radius) / waveSpeedPerTick));
+        }
+
+        private static double nonNegative(double value) {
+            return Math.max(0.0D, value);
+        }
+
+        private static double positive(double value, double minimum) {
+            return Math.max(minimum, value);
+        }
+    }
+
     public record GuardianConfig(
             boolean enabled,
             long spawnIntervalTicks,
@@ -376,6 +480,18 @@ public record EndFightConfig(
             int escalationShulkerWeight,
             int finalEndermanWeight,
             int finalShulkerWeight,
+            int openingPhantomWeight,
+            int openingVexWeight,
+            int openingObeliskWeight,
+            int totemsPhantomWeight,
+            int totemsVexWeight,
+            int totemsObeliskWeight,
+            int escalationPhantomWeight,
+            int escalationVexWeight,
+            int escalationObeliskWeight,
+            int finalPhantomWeight,
+            int finalVexWeight,
+            int finalObeliskWeight,
             double endermanVoidInterceptDamage,
             long endermanWeaknessTicks,
             long endermanSlownessTicks,
@@ -386,7 +502,32 @@ public record EndFightConfig(
             long shulkerSlowFallingTicks,
             long shulkerAttackCooldownTicks,
             double crystalWardReduction,
-            long crystalWardTicks
+            long crystalWardTicks,
+            int phantomMaxAlive,
+            double phantomMaxHealth,
+            double phantomDiveDamage,
+            double phantomLaunchVelocity,
+            long phantomWarningTicks,
+            long phantomAttackCooldownTicks,
+            double phantomSpawnHeight,
+            int vexMaxAlive,
+            double vexMaxHealth,
+            double vexCurseDamage,
+            long vexCurseTicks,
+            double vexOutgoingReduction,
+            double vexIncomingIncrease,
+            long vexAttackCooldownTicks,
+            int obeliskMaxAlive,
+            double obeliskMaxHealth,
+            double obeliskArmor,
+            double obeliskKnockbackResistance,
+            double obeliskAttackDamage,
+            double obeliskDefenseRange,
+            double obeliskTeleportTriggerRange,
+            long obeliskWitherTicks,
+            int obeliskWitherAmplifier,
+            double obeliskComboStep,
+            double obeliskComboCap
     ) {
 
         public static GuardianConfig defaults() {
@@ -403,6 +544,18 @@ public record EndFightConfig(
                     3,
                     3,
                     3,
+                    0,
+                    0,
+                    0,
+                    4,
+                    4,
+                    0,
+                    5,
+                    5,
+                    0,
+                    6,
+                    6,
+                    0,
                     8.0D,
                     seconds(4.0D),
                     seconds(3.0D),
@@ -413,7 +566,32 @@ public record EndFightConfig(
                     seconds(4.0D),
                     seconds(6.0D),
                     0.5D,
-                    seconds(4.0D)
+                    seconds(4.0D),
+                    1,
+                    30.0D,
+                    9.0D,
+                    0.9D,
+                    seconds(2.0D),
+                    seconds(8.0D),
+                    14.0D,
+                    1,
+                    24.0D,
+                    6.0D,
+                    seconds(6.0D),
+                    0.15D,
+                    0.30D,
+                    seconds(7.0D),
+                    10,
+                    300.0D,
+                    12.0D,
+                    0.8D,
+                    8.5D,
+                    12.0D,
+                    16.0D,
+                    seconds(5.0D),
+                    0,
+                    0.10D,
+                    0.50D
             );
         }
 
@@ -432,6 +610,18 @@ public record EndFightConfig(
                     Math.max(0, config.getInt("fight.guardians.phase-weights.escalation.shulker", defaults.escalationShulkerWeight())),
                     Math.max(0, config.getInt("fight.guardians.phase-weights.final.enderman", defaults.finalEndermanWeight())),
                     Math.max(0, config.getInt("fight.guardians.phase-weights.final.shulker", defaults.finalShulkerWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.opening.phantom", defaults.openingPhantomWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.opening.vex", defaults.openingVexWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.opening.obelisk", defaults.openingObeliskWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.totems.phantom", defaults.totemsPhantomWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.totems.vex", defaults.totemsVexWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.totems.obelisk", defaults.totemsObeliskWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.escalation.phantom", defaults.escalationPhantomWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.escalation.vex", defaults.escalationVexWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.escalation.obelisk", defaults.escalationObeliskWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.final.phantom", defaults.finalPhantomWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.final.vex", defaults.finalVexWeight())),
+                    Math.max(0, config.getInt("fight.guardians.phase-weights.final.obelisk", defaults.finalObeliskWeight())),
                     config.getDouble("fight.guardians.void-intercept.damage", defaults.endermanVoidInterceptDamage()),
                     seconds(config.getDouble("fight.guardians.void-intercept.weakness-seconds", defaults.endermanWeaknessTicks() / 20.0D)),
                     seconds(config.getDouble("fight.guardians.void-intercept.slowness-seconds", defaults.endermanSlownessTicks() / 20.0D)),
@@ -442,7 +632,32 @@ public record EndFightConfig(
                     seconds(config.getDouble("fight.guardians.anchor-shot.slow-falling-seconds", defaults.shulkerSlowFallingTicks() / 20.0D)),
                     seconds(config.getDouble("fight.guardians.anchor-shot.cooldown-seconds", defaults.shulkerAttackCooldownTicks() / 20.0D)),
                     Math.max(0.0D, Math.min(1.0D, config.getDouble("fight.guardians.crystal-ward.damage-reduction", defaults.crystalWardReduction()))),
-                    seconds(config.getDouble("fight.guardians.crystal-ward.duration-seconds", defaults.crystalWardTicks() / 20.0D))
+                    seconds(config.getDouble("fight.guardians.crystal-ward.duration-seconds", defaults.crystalWardTicks() / 20.0D)),
+                    Math.max(0, config.getInt("fight.guardians.phantom.max-alive", defaults.phantomMaxAlive())),
+                    Math.max(1.0D, config.getDouble("fight.guardians.phantom.max-health", defaults.phantomMaxHealth())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.phantom.dive-damage", defaults.phantomDiveDamage())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.phantom.launch-velocity", defaults.phantomLaunchVelocity())),
+                    seconds(config.getDouble("fight.guardians.phantom.warning-seconds", defaults.phantomWarningTicks() / 20.0D)),
+                    seconds(config.getDouble("fight.guardians.phantom.cooldown-seconds", defaults.phantomAttackCooldownTicks() / 20.0D)),
+                    Math.max(1.0D, config.getDouble("fight.guardians.phantom.spawn-height", defaults.phantomSpawnHeight())),
+                    Math.max(0, config.getInt("fight.guardians.vex.max-alive", defaults.vexMaxAlive())),
+                    Math.max(1.0D, config.getDouble("fight.guardians.vex.max-health", defaults.vexMaxHealth())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.vex.curse-damage", defaults.vexCurseDamage())),
+                    seconds(config.getDouble("fight.guardians.vex.curse-seconds", defaults.vexCurseTicks() / 20.0D)),
+                    Math.max(0.0D, Math.min(1.0D, config.getDouble("fight.guardians.vex.outgoing-reduction", defaults.vexOutgoingReduction()))),
+                    Math.max(0.0D, config.getDouble("fight.guardians.vex.incoming-increase", defaults.vexIncomingIncrease())),
+                    seconds(config.getDouble("fight.guardians.vex.cooldown-seconds", defaults.vexAttackCooldownTicks() / 20.0D)),
+                    Math.max(0, config.getInt("fight.guardians.obelisk.max-alive", defaults.obeliskMaxAlive())),
+                    Math.max(1.0D, config.getDouble("fight.guardians.obelisk.max-health", defaults.obeliskMaxHealth())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.armor", defaults.obeliskArmor())),
+                    Math.max(0.0D, Math.min(1.0D, config.getDouble("fight.guardians.obelisk.knockback-resistance", defaults.obeliskKnockbackResistance()))),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.attack-damage", defaults.obeliskAttackDamage())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.defense-range", defaults.obeliskDefenseRange())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.teleport-trigger-range", defaults.obeliskTeleportTriggerRange())),
+                    seconds(config.getDouble("fight.guardians.obelisk.wither-seconds", defaults.obeliskWitherTicks() / 20.0D)),
+                    Math.max(0, config.getInt("fight.guardians.obelisk.wither-amplifier", defaults.obeliskWitherAmplifier())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.combo-step", defaults.obeliskComboStep())),
+                    Math.max(0.0D, config.getDouble("fight.guardians.obelisk.combo-cap", defaults.obeliskComboCap()))
             );
         }
 

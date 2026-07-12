@@ -122,7 +122,6 @@ final class DragonAttackSchedulerTest {
                 12.0D,
                 0.15D,
                 0.45D,
-                0.40D,
                 0.20D,
                 300L,
                 900L,

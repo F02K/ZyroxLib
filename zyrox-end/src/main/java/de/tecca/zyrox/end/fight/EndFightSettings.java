@@ -4,9 +4,11 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 public record EndFightSettings(
         Ritual ritual,
+        Gathering gathering,
         RepeatProfile repeat,
         GuardianVisual guardianVisual,
-        PhaseBudgets phaseBudgets
+        PhaseBudgets phaseBudgets,
+        Cinematics cinematics
 ) {
 
     public static EndFightSettings from(FileConfiguration config) {
@@ -18,6 +20,11 @@ public record EndFightSettings(
                         seconds(config.getDouble("fight.first-ritual.activation-seconds", 50.0D)),
                         seconds(config.getDouble("fight.first-ritual.finale-seconds", 8.0D)),
                         Math.max(1L, config.getLong("fight.first-ritual.animation-interval-ticks", 4L))
+                ),
+                new Gathering(
+                        clampRatio(config.getDouble("fight.first-ritual.gathering.required-ratio", 0.75D)),
+                        seconds(config.getDouble("fight.first-ritual.gathering.hold-seconds", 10.0D)),
+                        Math.max(12, config.getInt("fight.first-ritual.gathering.particle-points", 72))
                 ),
                 new RepeatProfile(
                         clampMultiplier(config.getDouble("fight.profiles.repeat.dragon-health-multiplier", 0.85D)),
@@ -35,6 +42,25 @@ public record EndFightSettings(
                         budget(config, "totems", 2, 2, 10),
                         budget(config, "escalation", 3, 2, 12),
                         budget(config, "final", 4, 2, 14)
+                ),
+                new Cinematics(
+                        config.getBoolean("fight.cinematics.enabled", true),
+                        config.getString("fight.cinematics.intensity", "cinematic"),
+                        Math.max(1L, Math.min(20L, config.getLong("fight.cinematics.tick-interval", 2L))),
+                        positive(config.getDouble("fight.cinematics.full-detail-range", 64.0D), 8.0D),
+                        positive(config.getDouble("fight.cinematics.medium-detail-range", 128.0D), 16.0D),
+                        positive(config.getDouble("fight.cinematics.maximum-view-range", 192.0D), 24.0D),
+                        Math.max(100, Math.min(5000, config.getInt("fight.cinematics.max-points-per-frame", 900))),
+                        clampDensity(config.getDouble("fight.cinematics.particle-density-multiplier", 1.0D)),
+                        clampVolume(config.getDouble("fight.cinematics.sound-volume-multiplier", 1.0D)),
+                        clampDensity(config.getDouble("fight.cinematics.ambient-frequency-multiplier", 1.0D)),
+                        seconds(config.getDouble("fight.cinematics.phase-transition-seconds", 3.0D)),
+                        seconds(config.getDouble("fight.cinematics.final-activation-seconds", 3.5D)),
+                        seconds(config.getDouble("fight.cinematics.aftermath-seconds", 1.5D)),
+                        clampDensity(config.getDouble("fight.cinematics.ritual-density", 1.0D)),
+                        clampDensity(config.getDouble("fight.cinematics.phase-density", 1.0D)),
+                        clampDensity(config.getDouble("fight.cinematics.attack-density", 1.0D)),
+                        clampDensity(config.getDouble("fight.cinematics.anchor-density", 1.0D))
                 )
         );
     }
@@ -78,6 +104,22 @@ public record EndFightSettings(
         return Math.max(0.0D, value);
     }
 
+    private static double clampRatio(double value) {
+        return Math.max(0.0D, Math.min(1.0D, value));
+    }
+
+    private static double clampDensity(double value) {
+        return Math.max(0.1D, Math.min(3.0D, value));
+    }
+
+    private static double clampVolume(double value) {
+        return Math.max(0.0D, Math.min(2.0D, value));
+    }
+
+    private static double positive(double value, double minimum) {
+        return Math.max(minimum, value);
+    }
+
     private static long seconds(double seconds) {
         return Math.max(1L, Math.round(seconds * 20.0D));
     }
@@ -115,6 +157,9 @@ public record EndFightSettings(
     ) {
     }
 
+    public record Gathering(double requiredRatio, long holdTicks, int particlePoints) {
+    }
+
     public record GuardianVisual(double scale, long particleIntervalTicks) {
     }
 
@@ -130,5 +175,31 @@ public record EndFightSettings(
     }
 
     public record Budget(int base, int perPlayer, int maximum) {
+    }
+
+    public record Cinematics(
+            boolean enabled,
+            String intensity,
+            long tickInterval,
+            double fullDetailRange,
+            double mediumDetailRange,
+            double maximumViewRange,
+            int maxPointsPerFrame,
+            double particleDensityMultiplier,
+            double soundVolumeMultiplier,
+            double ambientFrequencyMultiplier,
+            long phaseTransitionTicks,
+            long finalActivationTicks,
+            long aftermathTicks,
+            double ritualDensity,
+            double phaseDensity,
+            double attackDensity,
+            double anchorDensity
+    ) {
+        public Cinematics {
+            intensity = intensity == null || intensity.isBlank() ? "cinematic" : intensity;
+            mediumDetailRange = Math.max(fullDetailRange, mediumDetailRange);
+            maximumViewRange = Math.max(mediumDetailRange, maximumViewRange);
+        }
     }
 }

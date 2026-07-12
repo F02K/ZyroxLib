@@ -1,0 +1,21 @@
+name: ZyroxVillagerShop
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.villagershop.plugin.ZyroxVillagerShopPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+libraries:
+  - org.xerial:sqlite-jdbc:3.53.2.0
+commands:
+  villagershop:
+    description: Manages Zyrox villager shops.
+    usage: /villagershop <spawn|edit|tp|remove|info|list|reload|name>
+permissions:
+  zyrox.villagershop.admin:
+    description: Allows managing Zyrox villager shops.
+    default: op
+  zyrox.villagershop.web:
+    description: Allows viewing ZyroxVillagerShop in the dashboard.
+    default: op
+

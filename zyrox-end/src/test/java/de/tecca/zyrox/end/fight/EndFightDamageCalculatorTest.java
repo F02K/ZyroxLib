@@ -22,14 +22,17 @@ final class EndFightDamageCalculatorTest {
     }
 
     @Test
-    void finalAnchorReductionOnlyAppliesInFinalPhase() {
+    void activeFinalAnchorMakesDragonImmuneInFinalPhase() {
         EndFightConfig config = config();
         EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
         session.addNode(node(RitualNodeType.FINAL_ANCHOR));
 
         assertEquals(100.0D, calculator.dragonDamage(100.0D, session, config), 0.0001D);
         session.updatePhase(25.0D, 200.0D);
-        assertEquals(60.0D, calculator.dragonDamage(100.0D, session, config), 0.0001D);
+        session.finalAnchor().orElseThrow().unlockFor(FightPhase.FINAL);
+        assertEquals(0.0D, calculator.dragonDamage(100.0D, session, config), 0.0001D);
+        session.finalAnchor().orElseThrow().deactivate();
+        assertEquals(100.0D, calculator.dragonDamage(100.0D, session, config), 0.0001D);
     }
 
     @Test
@@ -58,7 +61,6 @@ final class EndFightDamageCalculatorTest {
                 12.0D,
                 0.15D,
                 0.45D,
-                0.40D,
                 0.20D,
                 300L,
                 900L,

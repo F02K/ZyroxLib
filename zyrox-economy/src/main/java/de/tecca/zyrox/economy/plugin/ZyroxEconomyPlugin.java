@@ -9,15 +9,14 @@ import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
 import de.tecca.zyrox.api.setting.ZyroxSettingResult;
 import de.tecca.zyrox.api.setting.ZyroxSettingType;
 import de.tecca.zyrox.api.web.ZyroxDashboardView;
+import de.tecca.zyrox.economy.api.ZyroxDiamondPaymentService;
 import de.tecca.zyrox.economy.command.ZyroxEconomyCommand;
 import de.tecca.zyrox.economy.service.DiamondEconomyService;
+import de.tecca.zyrox.economy.service.EconomyFormatter;
 import de.tecca.zyrox.economy.storage.EconomyStorage;
-import de.tecca.zyrox.economy.vault.ZyroxVaultEconomy;
 import de.tecca.zyrox.economy.web.ZyroxEconomyDashboardRenderer;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.RegisteredServiceProvider;
-import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -28,12 +27,11 @@ import java.util.Objects;
 public final class ZyroxEconomyPlugin extends JavaPlugin {
 
     private static final String MODULE_ID = "zyrox-economy";
-    private static final String VIEW_ID = "zyrox-economy-ledger";
+    private static final String VIEW_ID = "zyrox-economy-payments";
 
     private ZyroxApi zyroxApi;
     private EconomyStorage storage;
     private DiamondEconomyService economyService;
-    private ZyroxVaultEconomy vaultEconomy;
 
     @Override
     public void onEnable() {
@@ -51,15 +49,12 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
             storage.open();
             warnIfLegacyFractionalBalancesExist();
         } catch (SQLException exception) {
-            getLogger().severe("Could not open ZyroxEconomy storage: " + exception.getMessage());
+            getLogger().severe("Could not open ZyroxEconomy legacy storage: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
-        economyService = new DiamondEconomyService(this, storage);
-        vaultEconomy = new ZyroxVaultEconomy(this, economyService);
-
-        registerVaultEconomy();
+        economyService = new DiamondEconomyService(this);
         registerCommand();
         registerZyroxApiIntegrations();
 
@@ -68,8 +63,6 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        getServer().getServicesManager().unregisterAll(this);
-
         if (zyroxApi != null) {
             unregisterZyroxApiIntegrations();
         }
@@ -78,7 +71,7 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
             try {
                 storage.close();
             } catch (SQLException exception) {
-                getLogger().warning("Could not close ZyroxEconomy storage: " + exception.getMessage());
+                getLogger().warning("Could not close ZyroxEconomy legacy storage: " + exception.getMessage());
             }
         }
 
@@ -91,24 +84,12 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
         registerDashboardView();
     }
 
-    public String usePermission() {
-        return getConfig().getString("permissions.use", "zyrox.economy.use");
-    }
-
     public String adminPermission() {
         return getConfig().getString("permissions.admin", "zyrox.economy.admin");
     }
 
-    public EconomyStorage storage() {
-        return storage;
-    }
-
     public DiamondEconomyService economyService() {
         return economyService;
-    }
-
-    private void registerVaultEconomy() {
-        getServer().getServicesManager().register(Economy.class, vaultEconomy, this, ServicePriority.Highest);
     }
 
     private void registerCommand() {
@@ -129,10 +110,11 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
                 MODULE_ID,
                 "ZyroxEconomy",
                 getDescription().getVersion(),
-                "Diamond-backed Vault economy for ZyroxMC shops.",
+                "Physical inventory-diamond payments for ZyroxMC shops.",
                 webPermission
         ));
 
+        zyroxApi.services().register(ZyroxDiamondPaymentService.class, economyService);
         registerDashboardView();
         registerSettings();
         registerActions();
@@ -140,6 +122,7 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
 
     private void unregisterZyroxApiIntegrations() {
         zyroxApi.modules().unregister(MODULE_ID);
+        zyroxApi.services().unregister(ZyroxDiamondPaymentService.class);
         zyroxApi.dashboardViews().unregister(VIEW_ID);
         zyroxApi.actions().unregister(MODULE_ID, "reload");
         unregisterSettings();
@@ -149,9 +132,9 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
         zyroxApi.dashboardViews().unregister(VIEW_ID);
         zyroxApi.dashboardViews().register(new ZyroxDashboardView(
                 VIEW_ID,
-                "Economy Ledger",
+                "Diamond Payments",
                 getConfig().getString("permissions.web", "zyrox.economy.web"),
-                context -> new ZyroxEconomyDashboardRenderer(storage, economyService.material()).render()
+                context -> new ZyroxEconomyDashboardRenderer(economyService.material()).render()
         ));
     }
 
@@ -174,10 +157,8 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
         zyroxApi.settings().registerCategory(MODULE_ID, new ZyroxSettingCategory("storage", "Storage", 20));
         zyroxApi.settings().registerCategory(MODULE_ID, new ZyroxSettingCategory("permissions", "Permissions", 30));
 
-        registerStringSetting("economy-material", "Material", "Inventory item used as Vault cash.", "economy", ZyroxSettingType.STRING, "economy.material", true, 10, true);
-        registerStringSetting("economy-debug-vault", "Debug Vault", "Logs Vault economy calls for shop diagnostics.", "economy", ZyroxSettingType.BOOLEAN, "economy.debug-vault", false, 20, false);
-        registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for the economy ledger.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, 10, true);
-        registerStringSetting("permission-use", "Use Permission", "Permission required to use economy player commands.", "permissions", ZyroxSettingType.STRING, "permissions.use", true, 10, true);
+        registerStringSetting("economy-material", "Material", "Physical inventory item used as money.", "economy", ZyroxSettingType.STRING, "economy.material", true, 10, true);
+        registerStringSetting("storage-sqlite-file", "SQLite File", "Legacy SQLite database path kept for old ledger review.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, 10, true);
         registerStringSetting("permission-admin", "Admin Permission", "Permission required to manage ZyroxEconomy.", "permissions", ZyroxSettingType.STRING, "permissions.admin", true, 20, true);
         registerStringSetting("permission-web", "Web Permission", "Permission required to view ZyroxEconomy in the dashboard.", "permissions", ZyroxSettingType.STRING, "permissions.web", true, 30, true);
     }
@@ -185,9 +166,7 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
     private void unregisterSettings() {
         for (String settingId : List.of(
                 "economy-material",
-                "economy-debug-vault",
                 "storage-sqlite-file",
-                "permission-use",
                 "permission-admin",
                 "permission-web"
         )) {
@@ -219,16 +198,9 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
                 adminPermission(),
                 order,
                 restartRequired,
-                () -> readConfigValue(type, configPath),
-                value -> saveConfigValue(configPath, typedValue(type, value))
+                () -> getConfig().getString(configPath, ""),
+                value -> saveConfigValue(configPath, value)
         ));
-    }
-
-    private Object readConfigValue(ZyroxSettingType type, String configPath) {
-        if (type == ZyroxSettingType.BOOLEAN) {
-            return getConfig().getBoolean(configPath, false);
-        }
-        return getConfig().getString(configPath, "");
     }
 
     private ZyroxSettingResult saveConfigValue(String configPath, Object value) {
@@ -238,13 +210,6 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
         return ZyroxSettingResult.success("Setting saved.");
     }
 
-    private Object typedValue(ZyroxSettingType type, String value) {
-        if (type == ZyroxSettingType.BOOLEAN) {
-            return Boolean.parseBoolean(value);
-        }
-        return value;
-    }
-
     private ZyroxApi loadZyroxApi() {
         RegisteredServiceProvider<ZyroxApi> provider = getServer().getServicesManager().getRegistration(ZyroxApi.class);
         return provider == null ? null : provider.getProvider();
@@ -252,12 +217,10 @@ public final class ZyroxEconomyPlugin extends JavaPlugin {
 
     private void warnIfLegacyFractionalBalancesExist() throws SQLException {
         if (storage.hasAnyLedgerBalances()) {
-            getLogger().warning("Existing ZyroxEconomy ledger balances are present. "
-                    + "Review them if players already triggered the old shop payout bug.");
+            getLogger().warning("Legacy ZyroxEconomy ledger balances are present. New shops use physical diamonds only.");
         }
-        if (storage.hasFractionalBalances(de.tecca.zyrox.economy.service.EconomyFormatter.DIAMOND_UNIT)) {
-            getLogger().warning("Existing ZyroxEconomy ledger contains non-whole diamond balances. "
-                    + "Whole-diamond cashout will ignore fractional leftovers until they are reviewed manually.");
+        if (storage.hasFractionalBalances(EconomyFormatter.DIAMOND_UNIT)) {
+            getLogger().warning("Legacy ZyroxEconomy ledger contains non-whole diamond balances.");
         }
     }
 

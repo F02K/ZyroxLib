@@ -36,4 +36,23 @@ final class AoeGeometryTest {
         assertTrue(AoeGeometry.hitsLane(new Location(null, 4.0D, 67.5D, 2.0D), lane, 2.5D, 4.0D));
         assertFalse(AoeGeometry.hitsLane(new Location(null, 4.0D, 69.0D, 2.0D), lane, 2.5D, 4.0D));
     }
+
+    @Test
+    void ringOnlyHitsItsCurrentBand() {
+        Location origin = new Location(null, 0.0D, 64.0D, 0.0D);
+
+        assertTrue(AoeGeometry.hitsRing(new Location(null, 9.5D, 80.0D, 0.0D), origin, 10.0D, 1.5D));
+        assertFalse(AoeGeometry.hitsRing(new Location(null, 8.0D, 64.0D, 0.0D), origin, 10.0D, 1.5D));
+        assertFalse(AoeGeometry.hitsRing(new Location(null, 12.0D, 64.0D, 0.0D), origin, 10.0D, 1.5D));
+    }
+
+    @Test
+    void rotatingRayRespectsDirectionLengthWidthAndHeight() {
+        Location origin = new Location(null, 0.0D, 64.0D, 0.0D);
+
+        assertTrue(AoeGeometry.hitsRay(new Location(null, 12.0D, 68.0D, 0.8D), origin, 0.0D, 20.0D, 2.0D, 5.0D));
+        assertFalse(AoeGeometry.hitsRay(new Location(null, -4.0D, 64.0D, 0.0D), origin, 0.0D, 20.0D, 2.0D, 5.0D));
+        assertFalse(AoeGeometry.hitsRay(new Location(null, 12.0D, 64.0D, 1.2D), origin, 0.0D, 20.0D, 2.0D, 5.0D));
+        assertFalse(AoeGeometry.hitsRay(new Location(null, 12.0D, 70.0D, 0.0D), origin, 0.0D, 20.0D, 2.0D, 5.0D));
+    }
 }

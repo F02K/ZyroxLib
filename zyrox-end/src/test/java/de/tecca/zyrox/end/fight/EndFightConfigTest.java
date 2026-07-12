@@ -115,6 +115,41 @@ final class EndFightConfigTest {
         assertEquals(10.5D, config.perchRitualDamage(), 0.0001D);
         assertEquals(6.0D, config.pointAttackVerticalRange(), 0.0001D);
         assertEquals(4.0D, config.laneAttackVerticalRange(), 0.0001D);
+        assertEquals(1, config.guardians().phantomMaxAlive());
+        assertEquals(0.15D, config.guardians().vexOutgoingReduction(), 0.0001D);
+        assertEquals(0.30D, config.guardians().vexIncomingIncrease(), 0.0001D);
+        assertEquals(300.0D, config.guardians().obeliskMaxHealth(), 0.0001D);
+        assertEquals(0.10D, config.guardians().obeliskComboStep(), 0.0001D);
+        assertEquals(0.50D, config.guardians().obeliskComboCap(), 0.0001D);
+        assertTrue(config.guardians().totemsPhantomWeight() > config.guardians().totemsEndermanWeight());
+        assertEquals(330.0D, config.finalAnchor().health(0), 0.0001D);
+        assertEquals(40L, config.finalAnchor().groundChargeTicks());
+        assertEquals(50L, config.finalAnchor().beamChargeTicks());
+        assertEquals(80L, config.finalAnchor().beamSweepTicks());
+        assertEquals(3, config.finalAnchor().waveCount());
+    }
+
+    @Test
+    void finalAnchorSettingsAreConfigurableAndSafelyBounded() {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.set("fight.final-phase.anchor.base-health", -20.0D);
+        yaml.set("fight.final-phase.anchor.health-per-participant", 40.0D);
+        yaml.set("fight.final-phase.anchor.attack-cooldown-seconds", 6.0D);
+        yaml.set("fight.final-phase.anchor.ground.wave-count", 0);
+        yaml.set("fight.final-phase.anchor.ground.wave-speed-per-tick", 1.2D);
+        yaml.set("fight.final-phase.anchor.beam.width", -1.0D);
+        yaml.set("fight.final-phase.anchor.particle-points", 5);
+
+        EndFightConfig.FinalAnchorConfig anchor = EndFightConfig.from(yaml).finalAnchor();
+
+        assertEquals(1.0D, anchor.baseHealth(), 0.0001D);
+        assertEquals(41.0D, anchor.health(1), 0.0001D);
+        assertEquals(120L, anchor.attackCooldownTicks());
+        assertEquals(1, anchor.waveCount());
+        assertEquals(1.2D, anchor.waveSpeedPerTick(), 0.0001D);
+        assertEquals(0.25D, anchor.beamWidth(), 0.0001D);
+        assertEquals(24, anchor.particlePoints());
+        assertTrue(anchor.groundExecutionTicks(96.0D) > anchor.groundExecutionTicks());
     }
 
     @Test
@@ -138,9 +173,17 @@ final class EndFightConfigTest {
         yaml.set("fight.first-ritual.total-seconds", 50.0D);
         yaml.set("fight.first-ritual.build-up-seconds", 10.0D);
         yaml.set("fight.first-ritual.activation-seconds", 30.0D);
+        yaml.set("fight.first-ritual.gathering.required-ratio", 0.8D);
+        yaml.set("fight.first-ritual.gathering.hold-seconds", 12.0D);
+        yaml.set("fight.first-ritual.gathering.particle-points", 80);
         yaml.set("fight.guardians.phase-budgets.final.base", 5);
         yaml.set("fight.guardians.phase-budgets.final.per-player", 3);
         yaml.set("fight.guardians.phase-budgets.final.maximum", 15);
+        yaml.set("fight.cinematics.tick-interval", 3L);
+        yaml.set("fight.cinematics.maximum-view-range", 220.0D);
+        yaml.set("fight.cinematics.max-points-per-frame", 1200);
+        yaml.set("fight.cinematics.final-activation-seconds", 4.0D);
+        yaml.set("fight.cinematics.attack-density", 1.4D);
 
         EndFightSettings settings = EndFightSettings.from(yaml);
 
@@ -150,6 +193,15 @@ final class EndFightConfigTest {
         assertEquals(800L, settings.ritual().convergenceStartTick());
         assertEquals(840L, settings.ritual().finaleStartTick());
         assertEquals(4L, settings.ritual().animationIntervalTicks());
+        assertEquals(0.8D, settings.gathering().requiredRatio(), 0.0001D);
+        assertEquals(240L, settings.gathering().holdTicks());
+        assertEquals(80, settings.gathering().particlePoints());
         assertEquals(14, settings.guardianBudget(FightProfile.FIRST, FightPhase.FINAL, 3));
+        assertTrue(settings.cinematics().enabled());
+        assertEquals(3L, settings.cinematics().tickInterval());
+        assertEquals(220.0D, settings.cinematics().maximumViewRange(), 0.0001D);
+        assertEquals(1200, settings.cinematics().maxPointsPerFrame());
+        assertEquals(80L, settings.cinematics().finalActivationTicks());
+        assertEquals(1.4D, settings.cinematics().attackDensity(), 0.0001D);
     }
 }

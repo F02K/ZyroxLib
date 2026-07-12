@@ -253,29 +253,44 @@ Admin commands:
 /deepdark tp
 ```
 
-## Diamond Economy
+## Diamond Payments
 
-`zyrox-economy` depends on `ZyroxAPI` and `Vault`, then registers itself as the
-Vault economy provider. Vault balance is intentionally strict: it is only the
-count of economy items in the online player's inventory. Whole Vault amounts map
-1:1 to diamonds, so a shop price of `2` costs exactly two diamonds. Fractional
-Vault amounts such as `2.5` are rejected.
+`zyrox-economy` depends on `ZyroxAPI` and exposes a small typed payment service
+through the shared service registry. It is not a classic account economy:
+diamonds in the player's inventory are the money. There is no player balance
+command because players can see their money directly in their inventory.
 
-Shop withdrawals remove the exact whole diamond amount from the buyer inventory
-and put the same amount into a covered reserve. Shop deposits are accepted only
-while enough covered reserve exists, so seller cashout-bank balances cannot be
-created from nothing. Cashout pays only whole diamonds and fails without changing
-the bank balance when the player inventory has no room.
-
-Player commands:
-
-```text
-/economy balance
-/economy cashout [amount|all]
-```
+Payment withdrawals remove the exact requested amount from inventory stacks. A
+price of `64` removes exactly 64 diamonds, spanning stacks when needed, and never
+removes an extra stack. Each withdrawal snapshots the inventory, edits only the
+required slots, and verifies the before/after item delta. If the caller's commit
+fails, the complete inventory snapshot is restored.
 
 Admin command:
 
 ```text
 /economy reload
+```
+
+## Chest Shops
+
+`zyrox-shop` depends on `ZyroxAPI` and `ZyroxEconomy`. Shops are chest anchors
+with virtual SQLite stock and stored diamond revenue; the real chest inventory is
+not used for shop contents.
+
+Create or edit a shop by sneak-left-clicking an empty chest while holding the
+item the shop should sell. Each shop sells one item template at a time, but the
+bundle amount is configurable, such as `32 sticks for 2 diamonds`. Mixed shops
+such as sticks plus cobblestone are intentionally not allowed.
+
+Players right-click a shop chest to buy `1`, `2`, `4`, `8`, or the maximum
+available number of bundles. The purchase checks virtual stock, buyer inventory
+space, and physical diamonds before committing the SQLite stock/revenue update.
+
+Admin commands:
+
+```text
+/shop info
+/shop remove
+/shop reload
 ```

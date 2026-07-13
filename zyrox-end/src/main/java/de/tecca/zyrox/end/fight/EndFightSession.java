@@ -32,6 +32,7 @@ public final class EndFightSession {
     private long nextArenaEventTick;
     private long nextDragonAttackTick;
     private long nextGuardianSpawnTick;
+    private long nextReactiveGuardianSpawnTick;
     private DragonAttackType lastDragonAttackType;
     private DragonAttackType queuedDragonAttackType;
     private DragonAttackIntent dragonAttackIntent;
@@ -115,6 +116,14 @@ public final class EndFightSession {
 
     public void setNextGuardianSpawnTick(long nextGuardianSpawnTick) {
         this.nextGuardianSpawnTick = Math.max(0L, nextGuardianSpawnTick);
+    }
+
+    public long nextReactiveGuardianSpawnTick() {
+        return nextReactiveGuardianSpawnTick;
+    }
+
+    public void setNextReactiveGuardianSpawnTick(long nextReactiveGuardianSpawnTick) {
+        this.nextReactiveGuardianSpawnTick = Math.max(0L, nextReactiveGuardianSpawnTick);
     }
 
     public DragonAttackType lastDragonAttackType() {
@@ -408,8 +417,12 @@ public final class EndFightSession {
     }
 
     public void beginGuardianPhase(FightPhase phase) {
+        beginGuardianPhase(phase, guardianUniqueIds.size());
+    }
+
+    public void beginGuardianPhase(FightPhase phase, int existingNormalGuardians) {
         guardianBudgetPhase = phase;
-        guardianBudgetConsumed = guardianUniqueIds.size();
+        guardianBudgetConsumed = Math.max(0, existingNormalGuardians);
     }
 
     public void resetGuardianBudget(FightPhase phase) {

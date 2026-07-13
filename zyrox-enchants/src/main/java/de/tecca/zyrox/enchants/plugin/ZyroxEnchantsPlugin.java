@@ -3,12 +3,14 @@ package de.tecca.zyrox.enchants.plugin;
 import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.module.ZyroxModule;
 import de.tecca.zyrox.api.setting.ZyroxSetting;
 import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
 import de.tecca.zyrox.api.setting.ZyroxSettingResult;
 import de.tecca.zyrox.api.setting.ZyroxSettingType;
 import de.tecca.zyrox.enchants.command.ZyroxEnchantsCommand;
+import de.tecca.zyrox.enchants.listener.ZyroxEnchantAnvilListener;
 import de.tecca.zyrox.enchants.service.EnchantBookService;
 import de.tecca.zyrox.enchants.text.EnchantText;
 import org.bukkit.command.PluginCommand;
@@ -27,19 +29,21 @@ public final class ZyroxEnchantsPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
 
-        enchants = new EnchantBookService();
+        enchants = new EnchantBookService(this);
         text = new EnchantText(this);
 
         registerCommand();
+        getServer().getPluginManager().registerEvents(new ZyroxEnchantAnvilListener(this), this);
 
         zyroxApi = loadZyroxApi();
-        if (zyroxApi != null) {
-            registerZyroxApiIntegrations();
-        } else {
-            getLogger().info("ZyroxAPI was not found. Dashboard integrations are disabled.");
+        if (zyroxApi == null) {
+            getLogger().severe("ZyroxAPI is required but was not available.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
         }
+        registerZyroxApiIntegrations();
 
         getLogger().info("ZyroxEnchants is enabled.");
     }
@@ -53,6 +57,7 @@ public final class ZyroxEnchantsPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ConfigUpdater.update(this, "config.yml");
         reloadConfig();
         text = new EnchantText(this);
     }
@@ -98,7 +103,7 @@ public final class ZyroxEnchantsPlugin extends JavaPlugin {
                 MODULE_ID,
                 "ZyroxEnchants",
                 getDescription().getVersion(),
-                "Command-only overleveled vanilla enchanted books.",
+                "Overleveled vanilla enchanted books with anvil safeguards.",
                 webPermission()
         ));
         registerSettings();

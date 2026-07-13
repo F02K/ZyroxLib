@@ -39,9 +39,9 @@ public record EndFightSettings(
                 ),
                 new PhaseBudgets(
                         budget(config, "opening", 0, 0, 0),
-                        budget(config, "totems", 2, 2, 10),
-                        budget(config, "escalation", 3, 2, 12),
-                        budget(config, "final", 4, 2, 14)
+                        budget(config, "totems", 3, 2, 12),
+                        budget(config, "escalation", 4, 3, 16),
+                        budget(config, "final", 6, 3, 20)
                 ),
                 new Cinematics(
                         config.getBoolean("fight.cinematics.enabled", true),
@@ -60,7 +60,8 @@ public record EndFightSettings(
                         clampDensity(config.getDouble("fight.cinematics.ritual-density", 1.0D)),
                         clampDensity(config.getDouble("fight.cinematics.phase-density", 1.0D)),
                         clampDensity(config.getDouble("fight.cinematics.attack-density", 1.0D)),
-                        clampDensity(config.getDouble("fight.cinematics.anchor-density", 1.0D))
+                        clampDensity(config.getDouble("fight.cinematics.anchor-density", 1.0D)),
+                        clampDensity(config.getDouble("fight.cinematics.respawn-density", 1.35D))
                 )
         );
     }
@@ -194,7 +195,8 @@ public record EndFightSettings(
             double ritualDensity,
             double phaseDensity,
             double attackDensity,
-            double anchorDensity
+            double anchorDensity,
+            double respawnDensity
     ) {
         public Cinematics {
             intensity = intensity == null || intensity.isBlank() ? "cinematic" : intensity;

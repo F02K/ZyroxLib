@@ -72,6 +72,14 @@ public final class FirstDragonEggState {
         return true;
     }
 
+    public boolean clearPendingEggClaim(UUID expectedEggId) {
+        if (eggClaimed || pendingEggClaim == null || !pendingEggClaim.eggId().equals(expectedEggId)) {
+            return false;
+        }
+        pendingEggClaim = null;
+        return true;
+    }
+
     public void markEggClaimed(DragonEggClaim claim) {
         eggClaimed = true;
         pendingEggClaim = null;

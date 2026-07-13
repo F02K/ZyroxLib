@@ -3,7 +3,7 @@ version: 0.1.0-SNAPSHOT
 main: de.tecca.zyrox.enchants.plugin.ZyroxEnchantsPlugin
 api-version: '1.21'
 author: tecca
-softdepend:
+depend:
   - ZyroxAPI
 commands:
   zenchants:

@@ -1,5 +1,6 @@
 package de.tecca.zyrox.dc.discord;
 
+import de.tecca.zyrox.dc.chat.ChatSyncFormatter;
 import de.tecca.zyrox.dc.service.VerificationService;
 import de.tecca.zyrox.dc.storage.DiscordBan;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -13,9 +14,12 @@ import net.dv8tion.jda.api.events.guild.GuildBanEvent;
 import net.dv8tion.jda.api.events.guild.GuildUnbanEvent;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.awt.Color;
@@ -23,6 +27,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public final class DiscordBotService extends ListenerAdapter {
@@ -46,7 +51,12 @@ public final class DiscordBotService extends ListenerAdapter {
 
         this.guildId = guildId;
         jda = JDABuilder.createDefault(token)
-                .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_MODERATION)
+                .enableIntents(
+                        GatewayIntent.GUILD_MEMBERS,
+                        GatewayIntent.GUILD_MODERATION,
+                        GatewayIntent.GUILD_MESSAGES,
+                        GatewayIntent.MESSAGE_CONTENT
+                )
                 .setMemberCachePolicy(MemberCachePolicy.ALL)
                 .addEventListeners(this)
                 .build();
@@ -79,6 +89,34 @@ public final class DiscordBotService extends ListenerAdapter {
                         net.dv8tion.jda.api.components.buttons.Button.primary(VERIFY_BUTTON_ID, buttonLabel)
                 ))
                 .queue();
+    }
+
+    public void sendMinecraftChatMessage(String playerName, String message) {
+        if (!isChatSyncEnabled()) {
+            return;
+        }
+
+        String channelId = plugin.getConfig().getString("chat-sync.channel-id", "");
+        if (channelId == null || channelId.isBlank() || "0".equals(channelId)) {
+            return;
+        }
+
+        TextChannel channel = jda == null ? null : jda.getTextChannelById(channelId);
+        if (channel == null) {
+            return;
+        }
+
+        String text = ChatSyncFormatter.format(
+                plugin.getConfig().getString("chat-sync.minecraft-to-discord-format", "**{player}**: {message}"),
+                Map.of(
+                        "player", playerName,
+                        "message", message
+                ),
+                plugin.getConfig().getInt("chat-sync.max-message-length", 256)
+        );
+        if (!text.isBlank()) {
+            channel.sendMessage(text).queue();
+        }
     }
 
     public List<DiscordMemberSnapshot> humanMembers() {
@@ -172,6 +210,38 @@ public final class DiscordBotService extends ListenerAdapter {
         ));
     }
 
+    @Override
+    public void onMessageReceived(MessageReceivedEvent event) {
+        if (!isChatSyncEnabled() || !event.isFromGuild() || !isConfiguredGuild(event.getGuild())) {
+            return;
+        }
+        if (event.getAuthor().isBot() || event.isWebhookMessage()) {
+            return;
+        }
+
+        String channelId = plugin.getConfig().getString("chat-sync.channel-id", "");
+        if (channelId == null || channelId.isBlank() || !event.getChannel().getId().equals(channelId)) {
+            return;
+        }
+
+        String message = event.getMessage().getContentDisplay();
+        String displayName = event.getMember() == null ? event.getAuthor().getName() : displayName(event.getMember());
+        String minecraftMessage = ChatSyncFormatter.format(
+                plugin.getConfig().getString("chat-sync.discord-to-minecraft-format", "&9[Discord]&r {display-name}: &f{message}"),
+                Map.of(
+                        "display-name", displayName,
+                        "username", event.getAuthor().getName(),
+                        "message", message
+                ),
+                plugin.getConfig().getInt("chat-sync.max-message-length", 256)
+        );
+        if (minecraftMessage.isBlank()) {
+            return;
+        }
+
+        Bukkit.getScheduler().runTask(plugin, () -> Bukkit.broadcastMessage(formatMinecraftMessage(minecraftMessage)));
+    }
+
     private Guild requireGuild() {
         if (jda == null) {
             throw new IllegalStateException("Discord bot is not connected.");
@@ -218,6 +288,10 @@ public final class DiscordBotService extends ListenerAdapter {
         return plugin.getConfig().getBoolean("ban-sync.enabled", true);
     }
 
+    private boolean isChatSyncEnabled() {
+        return plugin.getConfig().getBoolean("chat-sync.enabled", false);
+    }
+
     private boolean isConfiguredGuild(Guild guild) {
         return guild != null && guild.getId().equals(guildId);
     }
@@ -225,5 +299,10 @@ public final class DiscordBotService extends ListenerAdapter {
     private String displayName(Member member) {
         String effectiveName = member.getEffectiveName();
         return effectiveName == null || effectiveName.isBlank() ? member.getUser().getName() : effectiveName;
+    }
+
+    @SuppressWarnings("deprecation")
+    private String formatMinecraftMessage(String message) {
+        return ChatColor.translateAlternateColorCodes('&', message == null ? "" : message);
     }
 }

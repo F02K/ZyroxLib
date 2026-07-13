@@ -1,6 +1,7 @@
 package de.tecca.zyrox.end.fight;
 
 import org.junit.jupiter.api.Test;
+import org.bukkit.Location;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -43,5 +44,18 @@ final class RitualNodeAssignerTest {
         assertEquals(13, roles.size());
         assertFalse(roles.contains(RitualNodeType.NONE));
         assertFalse(roles.contains(RitualNodeType.FINAL_ANCHOR));
+    }
+
+    @Test
+    void inactiveStructuralNodesReceiveRoles() {
+        List<PillarRitualNode> nodes = List.of(
+                new PillarRitualNode(UUID.randomUUID(), new Location(null, 0.0D, 80.0D, 0.0D), null),
+                new PillarRitualNode(UUID.randomUUID(), new Location(null, 8.0D, 80.0D, 0.0D), null)
+        );
+
+        assigner.assign(nodes, UUID.randomUUID());
+
+        assertFalse(nodes.get(0).type() == RitualNodeType.NONE);
+        assertFalse(nodes.get(1).type() == RitualNodeType.NONE);
     }
 }

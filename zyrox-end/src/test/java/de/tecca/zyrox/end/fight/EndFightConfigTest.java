@@ -36,6 +36,10 @@ final class EndFightConfigTest {
         yaml.set("fight.guardians.void-intercept.damage", 10.0D);
         yaml.set("fight.guardians.anchor-shot.damage", 8.5D);
         yaml.set("fight.guardians.crystal-ward.damage-reduction", 0.65D);
+        yaml.set("fight.guardians.reactive.enabled", false);
+        yaml.set("fight.guardians.reactive.cooldown-seconds", 9.0D);
+        yaml.set("fight.guardians.reactive.phantom-weight", 5);
+        yaml.set("fight.guardians.reactive.vex-weight", 6);
         yaml.set("fight.attacks.lane-vertical-range", 5.0D);
         yaml.set("fight.attacks.point-vertical-range", 7.0D);
         yaml.set("fight.attacks.breath-strafe.damage", 9.0D);
@@ -74,6 +78,10 @@ final class EndFightConfigTest {
         assertEquals(10.0D, config.guardians().endermanVoidInterceptDamage(), 0.0001D);
         assertEquals(8.5D, config.guardians().shulkerAnchorShotDamage(), 0.0001D);
         assertEquals(0.65D, config.guardians().crystalWardReduction(), 0.0001D);
+        assertFalse(config.guardians().reactiveEnabled());
+        assertEquals(180L, config.guardians().reactiveCooldownTicks());
+        assertEquals(5, config.guardians().reactivePhantomWeight());
+        assertEquals(6, config.guardians().reactiveVexWeight());
         assertEquals(5.0D, config.laneAttackVerticalRange(), 0.0001D);
         assertEquals(7.0D, config.pointAttackVerticalRange(), 0.0001D);
         assertEquals(9.0D, config.breathStrafeDamage(), 0.0001D);
@@ -105,7 +113,7 @@ final class EndFightConfigTest {
         assertEquals(4L, config.crystalGlobalHitCooldownTicks());
         assertEquals(160L, config.crystalSpamGuardianFocusTicks());
         assertTrue(config.guardians().enabled());
-        assertEquals(10, config.guardians().maxForPlayers(5));
+        assertEquals(14, config.guardians().maxForPlayers(5));
         assertEquals(9.5D, config.breathStrafeDamage(), 0.0001D);
         assertEquals(15.5D, config.skyCrashDamage(), 0.0001D);
         assertEquals(6.5D, config.skyCrashAftershockDamage(), 0.0001D);
@@ -115,9 +123,21 @@ final class EndFightConfigTest {
         assertEquals(10.5D, config.perchRitualDamage(), 0.0001D);
         assertEquals(6.0D, config.pointAttackVerticalRange(), 0.0001D);
         assertEquals(4.0D, config.laneAttackVerticalRange(), 0.0001D);
-        assertEquals(1, config.guardians().phantomMaxAlive());
-        assertEquals(0.15D, config.guardians().vexOutgoingReduction(), 0.0001D);
-        assertEquals(0.30D, config.guardians().vexIncomingIncrease(), 0.0001D);
+        assertEquals(2, config.guardians().phantomMaxAlive());
+        assertEquals(2, config.guardians().vexMaxAlive());
+        assertEquals(10.5D, config.guardians().phantomDiveDamage(), 0.0001D);
+        assertEquals(1.05D, config.guardians().phantomLaunchVelocity(), 0.0001D);
+        assertEquals(30L, config.guardians().phantomWarningTicks());
+        assertEquals(120L, config.guardians().phantomAttackCooldownTicks());
+        assertEquals(7.5D, config.guardians().vexCurseDamage(), 0.0001D);
+        assertEquals(160L, config.guardians().vexCurseTicks());
+        assertEquals(0.20D, config.guardians().vexOutgoingReduction(), 0.0001D);
+        assertEquals(0.45D, config.guardians().vexIncomingIncrease(), 0.0001D);
+        assertEquals(100L, config.guardians().vexAttackCooldownTicks());
+        assertTrue(config.guardians().reactiveEnabled());
+        assertEquals(240L, config.guardians().reactiveCooldownTicks());
+        assertEquals(3, config.guardians().reactivePhantomWeight());
+        assertEquals(4, config.guardians().reactiveVexWeight());
         assertEquals(300.0D, config.guardians().obeliskMaxHealth(), 0.0001D);
         assertEquals(0.10D, config.guardians().obeliskComboStep(), 0.0001D);
         assertEquals(0.50D, config.guardians().obeliskComboCap(), 0.0001D);
@@ -160,10 +180,10 @@ final class EndFightConfigTest {
         assertEquals(85.0D, settings.nodeHealth(FightProfile.REPEAT, 100.0D), 0.0001D);
         assertEquals(8.5D, settings.damage(FightProfile.REPEAT, 10.0D), 0.0001D);
         assertEquals(230L, settings.cooldown(FightProfile.REPEAT, 200L));
-        assertEquals(10, settings.guardianBudget(FightProfile.FIRST, FightPhase.TOTEMS, 4));
-        assertEquals(8, settings.guardianBudget(FightProfile.REPEAT, FightPhase.TOTEMS, 4));
-        assertEquals(11, settings.guardianBudget(FightProfile.FIRST, FightPhase.ESCALATION, 4));
-        assertEquals(9, settings.guardianBudget(FightProfile.REPEAT, FightPhase.ESCALATION, 4));
+        assertEquals(11, settings.guardianBudget(FightProfile.FIRST, FightPhase.TOTEMS, 4));
+        assertEquals(9, settings.guardianBudget(FightProfile.REPEAT, FightPhase.TOTEMS, 4));
+        assertEquals(16, settings.guardianBudget(FightProfile.FIRST, FightPhase.ESCALATION, 4));
+        assertEquals(12, settings.guardianBudget(FightProfile.REPEAT, FightPhase.ESCALATION, 4));
         assertEquals(0, settings.guardianBudget(FightProfile.FIRST, FightPhase.OPENING, 10));
     }
 
@@ -184,6 +204,7 @@ final class EndFightConfigTest {
         yaml.set("fight.cinematics.max-points-per-frame", 1200);
         yaml.set("fight.cinematics.final-activation-seconds", 4.0D);
         yaml.set("fight.cinematics.attack-density", 1.4D);
+        yaml.set("fight.cinematics.respawn-density", 1.8D);
 
         EndFightSettings settings = EndFightSettings.from(yaml);
 
@@ -203,5 +224,6 @@ final class EndFightConfigTest {
         assertEquals(1200, settings.cinematics().maxPointsPerFrame());
         assertEquals(80L, settings.cinematics().finalActivationTicks());
         assertEquals(1.4D, settings.cinematics().attackDensity(), 0.0001D);
+        assertEquals(1.8D, settings.cinematics().respawnDensity(), 0.0001D);
     }
 }

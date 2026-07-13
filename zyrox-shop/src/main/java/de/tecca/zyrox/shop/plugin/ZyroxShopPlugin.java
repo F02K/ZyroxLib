@@ -3,6 +3,7 @@ package de.tecca.zyrox.shop.plugin;
 import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.module.ZyroxModule;
 import de.tecca.zyrox.api.setting.ZyroxSetting;
 import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
@@ -41,7 +42,7 @@ public final class ZyroxShopPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
 
         zyroxApi = loadZyroxApi();
         if (zyroxApi == null) {
@@ -101,6 +102,7 @@ public final class ZyroxShopPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ConfigUpdater.update(this, "config.yml");
         reloadConfig();
         if (hologramRepairTask != null) {
             hologramRepairTask.cancel();

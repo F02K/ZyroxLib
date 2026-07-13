@@ -3,6 +3,7 @@ package de.tecca.zyrox.end.plugin;
 import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.module.ZyroxModule;
 import de.tecca.zyrox.end.command.ZyroxEndCommand;
 import de.tecca.zyrox.end.fight.EndFightService;
@@ -27,7 +28,7 @@ public final class ZyroxEndPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
 
         zyroxApi = loadZyroxApi();
         if (zyroxApi == null) {
@@ -61,6 +62,7 @@ public final class ZyroxEndPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ConfigUpdater.update(this, "config.yml");
         reloadConfig();
         dragonEggService.reload();
         fightService.reloadConfig();

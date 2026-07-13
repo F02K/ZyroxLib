@@ -198,6 +198,19 @@ final class EndFightSessionTest {
     }
 
     @Test
+    void reactiveGuardianCooldownExpiresAfterConfiguredTicks() {
+        EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
+
+        session.setNextReactiveGuardianSpawnTick(120L);
+
+        assertEquals(120L, session.nextReactiveGuardianSpawnTick());
+        session.setTick(119L);
+        assertTrue(session.tick() < session.nextReactiveGuardianSpawnTick());
+        session.setTick(120L);
+        assertFalse(session.tick() < session.nextReactiveGuardianSpawnTick());
+    }
+
+    @Test
     void guardianBudgetResetStartsOneFreshFiniteBudget() {
         EndFightSession session = new EndFightSession(UUID.randomUUID(), "world_the_end");
         session.beginGuardianPhase(FightPhase.FINAL);

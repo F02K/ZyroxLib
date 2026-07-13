@@ -3,6 +3,7 @@ package de.tecca.zyrox.api.plugin;
 import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.internal.SimpleZyroxActionRegistry;
 import de.tecca.zyrox.api.internal.SimpleZyroxApi;
 import de.tecca.zyrox.api.internal.SimpleZyroxDashboardViewRegistry;
@@ -28,7 +29,7 @@ public final class ZyroxApiPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
 
         SimpleZyroxServiceRegistry serviceRegistry = new SimpleZyroxServiceRegistry();
         SimpleZyroxModuleRegistry moduleRegistry = new SimpleZyroxModuleRegistry();

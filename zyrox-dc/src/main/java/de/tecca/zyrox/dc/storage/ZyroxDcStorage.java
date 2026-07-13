@@ -18,6 +18,8 @@ import java.util.UUID;
 
 public final class ZyroxDcStorage implements AutoCloseable {
 
+    private static final int INITIAL_SCHEMA_VERSION = 1;
+
     private final JavaPlugin plugin;
     private final File databaseFile;
     private Connection connection;
@@ -239,6 +241,57 @@ public final class ZyroxDcStorage implements AutoCloseable {
     }
 
     private void migrate() throws SQLException {
+        createMigrationTable();
+        if (isMigrationApplied(INITIAL_SCHEMA_VERSION)) {
+            return;
+        }
+
+        boolean previousAutoCommit = connection.getAutoCommit();
+        try {
+            connection.setAutoCommit(false);
+            applyInitialSchemaMigration();
+            recordMigration(INITIAL_SCHEMA_VERSION);
+            connection.commit();
+        } catch (SQLException exception) {
+            connection.rollback();
+            throw exception;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
+        }
+    }
+
+    private void createMigrationTable() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS schema_migrations(
+                        version INTEGER PRIMARY KEY,
+                        applied_at TEXT NOT NULL
+                    )
+                    """);
+        }
+    }
+
+    private boolean isMigrationApplied(int version) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT version FROM schema_migrations WHERE version = ?")) {
+            statement.setInt(1, version);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    private void recordMigration(int version) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO schema_migrations(version, applied_at)
+                VALUES(?, ?)
+                """)) {
+            statement.setInt(1, version);
+            statement.setString(2, Instant.now().toString());
+            statement.executeUpdate();
+        }
+    }
+
+    private void applyInitialSchemaMigration() throws SQLException {
         try (Statement statement = connection.createStatement()) {
             if (!tableExists("linked_accounts")) {
                 createLinkedAccountsTable(statement);

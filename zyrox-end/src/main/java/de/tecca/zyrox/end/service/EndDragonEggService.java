@@ -18,9 +18,12 @@ import java.util.function.LongSupplier;
 
 public final class EndDragonEggService {
 
+    private static final int MIN_CRYSTAL_LAYOUT_POSITIONS = 10;
+
     private final JavaPlugin plugin;
     private final DragonEggStateStorage storage;
     private final LongSupplier clock;
+    private final DragonEggTagIo tagIo;
     private FirstDragonEggState state;
 
     public EndDragonEggService(JavaPlugin plugin, DragonEggStateStorage storage) {
@@ -28,9 +31,14 @@ public final class EndDragonEggService {
     }
 
     EndDragonEggService(JavaPlugin plugin, DragonEggStateStorage storage, LongSupplier clock) {
+        this(plugin, storage, clock, null);
+    }
+
+    EndDragonEggService(JavaPlugin plugin, DragonEggStateStorage storage, LongSupplier clock, DragonEggTagIo tagIo) {
         this.plugin = plugin;
         this.storage = storage;
         this.clock = clock;
+        this.tagIo = tagIo == null ? new NbtDragonEggTagIo() : tagIo;
         this.state = storage.load();
     }
 
@@ -53,17 +61,41 @@ public final class EndDragonEggService {
             UUID ownerUniqueId,
             String ownerName
     ) {
-        if (!state.firstDragonKilled() || state.eggClaimed() || itemStack == null
-                || itemStack.getType() != Material.DRAGON_EGG || itemStack.getAmount() != 1) {
+        return claimAndTagFirstEgg(
+                itemStack,
+                itemStack == null ? null : itemStack.getType(),
+                itemStack == null ? 0 : itemStack.getAmount(),
+                ownerUniqueId,
+                ownerName
+        );
+    }
+
+    synchronized Optional<DragonEggClaim> claimAndTagFirstEgg(
+            ItemStack itemStack,
+            Material material,
+            int amount,
+            UUID ownerUniqueId,
+            String ownerName
+    ) {
+        if (!state.firstDragonKilled() || state.eggClaimed()
+                || material != Material.DRAGON_EGG || amount != 1
+                || ownerUniqueId == null || ownerName == null || ownerName.isBlank()) {
             return Optional.empty();
         }
 
+        boolean createdPendingClaim = state.pendingEggClaim().isEmpty();
         DragonEggClaim claim = reserveFirstEggClaim(ownerUniqueId, ownerName).orElse(null);
         if (claim == null) {
             return Optional.empty();
         }
-        writeCanonicalTag(itemStack, claim);
-        if (!readClaim(itemStack).filter(read -> read.eggId().equals(claim.eggId())).isPresent()) {
+        try {
+            tagIo.write(itemStack, claim);
+            if (tagIo.read(itemStack).filter(read -> read.eggId().equals(claim.eggId())).isEmpty()) {
+                rollbackNewPendingClaim(createdPendingClaim, claim.eggId());
+                return Optional.empty();
+            }
+        } catch (RuntimeException exception) {
+            rollbackNewPendingClaim(createdPendingClaim, claim.eggId());
             return Optional.empty();
         }
         if (!commitPendingEggClaim(claim.eggId())) {
@@ -92,6 +124,12 @@ public final class EndDragonEggService {
         state.trackEgg(itemTracking(null));
         storage.save(state);
         return true;
+    }
+
+    private void rollbackNewPendingClaim(boolean createdPendingClaim, UUID eggId) {
+        if (createdPendingClaim && state.clearPendingEggClaim(eggId)) {
+            storage.save(state);
+        }
     }
 
     public synchronized DragonEggValidation validateAndCanonicalize(ItemStack itemStack) {
@@ -140,7 +178,8 @@ public final class EndDragonEggService {
     }
 
     public synchronized boolean recordCrystalLayout(String worldName, List<String> positions) {
-        if (state.crystalLayoutRecorded() || positions.isEmpty()) {
+        if (positions == null || positions.size() < MIN_CRYSTAL_LAYOUT_POSITIONS
+                || state.crystalLayoutPositions().size() >= MIN_CRYSTAL_LAYOUT_POSITIONS) {
             return false;
         }
 
@@ -365,5 +404,24 @@ public final class EndDragonEggService {
         // Requiring the exact material also rejects every AIR variant without
         // invoking Material#isAir, which depends on a running Bukkit registry.
         return material == Material.DRAGON_EGG && amount > 0;
+    }
+
+    interface DragonEggTagIo {
+        void write(ItemStack itemStack, DragonEggClaim claim);
+
+        Optional<DragonEggClaim> read(ItemStack itemStack);
+    }
+
+    private final class NbtDragonEggTagIo implements DragonEggTagIo {
+
+        @Override
+        public void write(ItemStack itemStack, DragonEggClaim claim) {
+            writeCanonicalTag(itemStack, claim);
+        }
+
+        @Override
+        public Optional<DragonEggClaim> read(ItemStack itemStack) {
+            return readClaim(itemStack);
+        }
     }
 }

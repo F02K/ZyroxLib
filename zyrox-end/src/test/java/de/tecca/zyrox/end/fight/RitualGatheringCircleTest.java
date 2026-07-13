@@ -42,6 +42,22 @@ final class RitualGatheringCircleTest {
     }
 
     @Test
+    void usesArenaFallbackForIncompleteSevenPillarRing() {
+        List<PillarRitualNode> nodes = IntStream.range(0, 7)
+                .mapToObj(index -> {
+                    double angle = Math.PI * 2.0D * index / 10.0D;
+                    return node(12.0D + Math.cos(angle) * 42.0D, -7.0D + Math.sin(angle) * 42.0D);
+                })
+                .toList();
+
+        RitualGatheringCircle circle = RitualGatheringCircle.from(nodes, 2.0D, 3.0D, 64.0D);
+
+        assertEquals(2.0D, circle.centerX(), 0.0001D);
+        assertEquals(3.0D, circle.centerZ(), 0.0001D);
+        assertEquals(64.0D, circle.radius(), 0.0001D);
+    }
+
+    @Test
     void roundsQuorumUpToARealSeventyFivePercentMajority() {
         assertEquals(0, RitualGatheringCircle.requiredPlayers(0, 0.75D));
         assertEquals(1, RitualGatheringCircle.requiredPlayers(1, 0.75D));

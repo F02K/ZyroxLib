@@ -9,7 +9,6 @@ import org.bukkit.Color;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.Location;
 import org.bukkit.GameMode;
-import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -17,7 +16,7 @@ import org.bukkit.World;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
-import org.bukkit.entity.Display;
+import org.bukkit.boss.DragonBattle;
 import org.bukkit.entity.Enderman;
 import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.EnderDragon;
@@ -29,7 +28,6 @@ import org.bukkit.entity.Phantom;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Shulker;
 import org.bukkit.entity.Spellcaster;
-import org.bukkit.entity.TextDisplay;
 import org.bukkit.entity.Vex;
 import org.bukkit.entity.WitherSkeleton;
 import org.bukkit.persistence.PersistentDataType;
@@ -57,19 +55,19 @@ public final class EndFightService {
     private final EndDragonEggService dragonEggService;
     private final EndFightDamageCalculator damageCalculator = new EndFightDamageCalculator();
     private final PillarScanner pillarScanner = new PillarScanner();
+    private final TotemCrystalService totemCrystals;
     private final RitualNodeAssigner nodeAssigner = new RitualNodeAssigner();
     private final DragonAttackScheduler attackScheduler = new DragonAttackScheduler();
     private final FightCinematicDirector cinematicDirector;
-    private final NamespacedKey portalAnchorKey;
     private final NamespacedKey legacyTemporaryAnchorKey;
     private final NamespacedKey guardianKey;
     private final NamespacedKey ritualEvokerKey;
-    private final NamespacedKey ritualCrystalKey;
     private final Map<String, EndFightSession> sessionsByWorld = new HashMap<>();
     private final Map<String, FirstEndRitualSession> ritualsByWorld = new HashMap<>();
     private final Map<String, RitualGatheringSession> gatheringsByWorld = new HashMap<>();
     private final Map<String, BossBar> bossBarsByWorld = new HashMap<>();
     private final Map<String, FinalAnchorAttackState> finalAnchorAttacksByWorld = new HashMap<>();
+    private final Map<String, DragonBattle.RespawnPhase> respawnPhasesByWorld = new HashMap<>();
     private final Map<UUID, PhantomDive> phantomDives = new HashMap<>();
     private final Map<UUID, Long> vexCurseUntilTicks = new HashMap<>();
     private final Map<UUID, String> vexCurseWorlds = new HashMap<>();
@@ -92,11 +90,12 @@ public final class EndFightService {
         this.config = EndFightConfig.from(plugin.getConfig());
         this.settings = EndFightSettings.from(plugin.getConfig());
         this.cinematicDirector = new FightCinematicDirector(settings.cinematics());
-        this.portalAnchorKey = new NamespacedKey(plugin, "final_portal_anchor");
+        NamespacedKey portalAnchorKey = new NamespacedKey(plugin, "final_portal_anchor");
+        NamespacedKey ritualCrystalKey = new NamespacedKey(plugin, "first_ritual_crystal");
+        this.totemCrystals = new TotemCrystalService(portalAnchorKey, ritualCrystalKey, () -> config, this::message);
         this.legacyTemporaryAnchorKey = new NamespacedKey(plugin, "temporary_final_anchor");
         this.guardianKey = new NamespacedKey(plugin, "fight_guardian");
         this.ritualEvokerKey = new NamespacedKey(plugin, "first_ritual_evoker");
-        this.ritualCrystalKey = new NamespacedKey(plugin, "first_ritual_crystal");
     }
 
     public void start() {
@@ -137,6 +136,7 @@ public final class EndFightService {
         ritualsByWorld.clear();
         gatheringsByWorld.clear();
         finalAnchorAttacksByWorld.clear();
+        respawnPhasesByWorld.clear();
         phantomDives.clear();
         vexCurseUntilTicks.clear();
         vexCurseWorlds.clear();
@@ -186,7 +186,7 @@ public final class EndFightService {
                             ritualPending ? FightActivationState.DORMANT : FightActivationState.ACTIVE
                     );
                     for (PillarRitualNode node : pillarScanner.scan(dragon.getWorld(), config)) {
-                        if (node.crystalUniqueId().map(Bukkit::getEntity).filter(this::isPortalAnchor).isPresent()) {
+                        if (node.crystalUniqueId().map(Bukkit::getEntity).filter(totemCrystals::isPortalAnchor).isPresent()) {
                             continue;
                         }
                         node.setHealth(nodeHealth(created, config.crystalHealth(0)));
@@ -195,14 +195,18 @@ public final class EndFightService {
                     nodeAssigner.assign(new ArrayList<>(created.nodes()), dragon.getUniqueId());
                     if (ritualPending) {
                         gatheringsByWorld.put(worldName, new RitualGatheringSession(RitualGatheringCircle.from(
-                                created.nodes(),
+                                ritualNodes(created),
                                 config.arenaCenterX(),
                                 config.arenaCenterZ(),
                                 config.totemRingRadius()
                         )));
                     }
                     recordCrystalLayout(worldName, created);
-                    ensurePortalFinalAnchor(created, dragon.getWorld());
+                    totemCrystals.ensurePortalFinalAnchor(
+                            created,
+                            dragon.getWorld(),
+                            nodeHealth(created, config.finalAnchor().health(created.activeParticipantCount(config)))
+                    );
                     if (created.active()) {
                         activateFight(created, dragon);
                     } else {
@@ -248,7 +252,7 @@ public final class EndFightService {
         EndFightSession currentSession = session;
         gatheringsByWorld.computeIfAbsent(world.getName(), ignored -> new RitualGatheringSession(
                 RitualGatheringCircle.from(
-                        currentSession.nodes(),
+                        ritualNodes(currentSession),
                         config.arenaCenterX(),
                         config.arenaCenterZ(),
                         config.totemRingRadius()
@@ -364,10 +368,12 @@ public final class EndFightService {
     private void renderGatheringCircle(World world, RitualGatheringSession gathering) {
         RitualGatheringCircle circle = gathering.circle();
         int points = settings.gathering().particlePoints();
+        double centerX = VisualCenter.coordinate(circle.centerX());
+        double centerZ = VisualCenter.coordinate(circle.centerZ());
         for (int index = 0; index < points; index++) {
             double angle = Math.PI * 2.0D * index / points;
-            double x = circle.centerX() + Math.cos(angle) * circle.radius();
-            double z = circle.centerZ() + Math.sin(angle) * circle.radius();
+            double x = centerX + Math.cos(angle) * circle.radius();
+            double z = centerZ + Math.sin(angle) * circle.radius();
             double y = world.getHighestBlockYAt((int) Math.floor(x), (int) Math.floor(z)) + 0.2D;
             ParticleEffects.spawnForcedSimple(
                     world,
@@ -408,9 +414,12 @@ public final class EndFightService {
             if (node.type() == RitualNodeType.FINAL_ANCHOR) {
                 continue;
             }
-            node.crystalUniqueId().map(Bukkit::getEntity).ifPresent(Entity::remove);
-            node.deactivate();
-            Location location = node.pillarTop();
+            Optional<Location> spawnLocation = totemCrystals.prepareFirstRitualReplacement(node, world);
+            if (spawnLocation.isEmpty()) {
+                plugin.getLogger().warning("Skipping first ritual node without valid bedrock cap at " + node.pillarTop() + ".");
+                continue;
+            }
+            Location location = spawnLocation.get();
             Evoker evoker = world.spawn(location, Evoker.class, spawned -> {
                 spawned.getPersistentDataContainer().set(ritualEvokerKey, PersistentDataType.BYTE, (byte) 1);
                 spawned.setAI(false);
@@ -422,7 +431,7 @@ public final class EndFightService {
                 spawned.setCustomNameVisible(false);
                 spawned.setSpell(Spellcaster.Spell.WOLOLO);
             });
-            orientEvoker(evoker, center(world));
+            orientEvoker(evoker, visualCenter(world));
             ritual.bindEvoker(node.id(), evoker.getUniqueId());
         }
 
@@ -436,7 +445,7 @@ public final class EndFightService {
         }
         announce(world, message("fight.messages.ritual-start", "Die Ritualwirker rufen den Drachen."));
         showRitualTitle(world, "Das Ritual erwacht", "Die Wirker rufen in die Leere");
-        world.playSound(center(world), Sound.BLOCK_END_PORTAL_SPAWN, 2.5F, 0.55F);
+        world.playSound(visualCenter(world), Sound.BLOCK_END_PORTAL_SPAWN, 2.5F, 0.55F);
     }
 
     private void tickFirstRitual(EndFightSession session, World world, EnderDragon dragon) {
@@ -490,10 +499,12 @@ public final class EndFightService {
 
     private void renderRitualFoundation(FirstEndRitualSession ritual, World world) {
         double phase = ritual.elapsedTicks() / 12.0D;
-        Location ritualCenter = center(world).add(0.0D, 0.35D, 0.0D);
-        ParticleEffects.spawnForcedOrbit(world, ritualCenter, 5.0D, phase, 0.12D, Particle.REVERSE_PORTAL, 30);
-        ParticleEffects.spawnForcedOrbit(world, ritualCenter, 8.0D, -phase * 0.7D, 0.2D, Particle.SOUL_FIRE_FLAME, 38);
-        ParticleEffects.spawnForcedDust(world, ritualCenter, Color.fromRGB(35, 0, 55), 1.4F, 4, 2.5D, 0.4D, 2.5D);
+        Location ritualCenter = visualCenter(world).add(0.0D, 0.35D, 0.0D);
+        double pulse = 0.5D + 0.5D * Math.sin(phase * 2.0D);
+        ParticleEffects.spawnForcedOrbit(world, ritualCenter, 5.0D + pulse * 1.2D, phase, 0.18D + pulse * 0.12D, Particle.REVERSE_PORTAL, 38);
+        ParticleEffects.spawnForcedOrbit(world, ritualCenter, 8.0D + pulse * 1.8D, -phase * 0.7D, 0.25D + pulse * 0.15D, Particle.SOUL_FIRE_FLAME, 46);
+        ParticleEffects.spawnForcedOrbit(world, ritualCenter.clone().add(0.0D, 1.0D + pulse * 0.8D, 0.0D), 2.2D + pulse, phase * 1.6D, 0.45D, Particle.END_ROD, 26);
+        ParticleEffects.spawnForcedDust(world, ritualCenter, Color.fromRGB(35, 0, 55), 1.4F + (float) pulse, 6, 2.8D, 0.5D, 2.8D);
     }
 
     private void renderRitualAwakening(FirstEndRitualSession ritual, World world) {
@@ -507,25 +518,45 @@ public final class EndFightService {
                 continue;
             }
             Location feet = evoker.getLocation().add(0.0D, 0.1D, 0.0D);
+            double phase = ritual.elapsedTicks() / 6.0D;
+            double pulse = 0.5D + 0.5D * Math.sin(phase);
             ParticleEffects.spawnForcedOrbit(
                     world,
                     feet,
-                    1.5D,
-                    ritual.elapsedTicks() / 8.0D,
-                    0.05D,
+                    1.3D + pulse * 0.8D,
+                    phase,
+                    0.12D + pulse * 0.18D,
                     Particle.REVERSE_PORTAL,
-                    14
+                    24
+            );
+            ParticleEffects.spawnForcedOrbit(
+                    world,
+                    feet.clone().add(0.0D, 1.4D, 0.0D),
+                    0.7D + pulse * 0.35D,
+                    -phase * 1.4D,
+                    0.45D,
+                    Particle.WITCH,
+                    18
+            );
+            ParticleEffects.spawnForcedHelix(
+                    world,
+                    feet,
+                    0.55D + pulse * 0.25D,
+                    2.4D,
+                    phase * 1.2D,
+                    Particle.END_ROD
             );
             ParticleEffects.spawnForcedSimple(
                     world,
                     Particle.SOUL_FIRE_FLAME,
-                    feet.clone().add(0.0D, 1.0D, 0.0D),
-                    2,
-                    0.35D,
-                    0.8D,
-                    0.35D,
+                    feet.clone().add(0.0D, 1.0D + pulse * 0.6D, 0.0D),
+                    4,
+                    0.45D,
+                    0.9D,
+                    0.45D,
                     0.01D
             );
+            ParticleEffects.spawnForcedDust(world, feet.clone().add(0.0D, 0.4D, 0.0D), Color.fromRGB(150, 25, 220), 1.3F + (float) pulse, 5, 0.55D, 0.3D, 0.55D);
         }
     }
 
@@ -542,12 +573,15 @@ public final class EndFightService {
         }
         double progress = ritual.channelProgress(timing.buildUpTicks(), timing.activationTicks());
         double eased = progress * progress * (3.0D - 2.0D * progress);
-        Location from = center(world).add(0.0D, 1.2D, 0.0D);
+        Location from = visualCenter(world).add(0.0D, 1.2D, 0.0D);
         Location to = currentNode.get().pillarTop().add(0.0D, 1.2D, 0.0D);
         Location orb = ParticleEffects.interpolate(from, to, eased);
         ParticleEffects.spawnForcedDust(world, orb, Color.fromRGB(150, 25, 220), 2.0F, 10, 0.25D, 0.25D, 0.25D);
         ParticleEffects.spawnForcedSimple(world, Particle.END_ROD, orb, 5, 0.18D, 0.18D, 0.18D, 0.01D);
-        for (int i = 1; i <= 6; i++) {
+        double pulse = 0.5D + 0.5D * Math.sin(ritual.elapsedTicks() / 4.0D);
+        ParticleEffects.spawnForcedOrbit(world, to, 1.6D + pulse * 1.2D, ritual.elapsedTicks() / 5.0D, 0.25D + pulse * 0.35D, Particle.REVERSE_PORTAL, 30);
+        ParticleEffects.spawnForcedOrbit(world, orb, 0.8D + pulse * 0.45D, -ritual.elapsedTicks() / 4.0D, 0.4D, Particle.WITCH, 18);
+        for (int i = 1; i <= 10; i++) {
             Location tail = ParticleEffects.interpolate(from, to, Math.max(0.0D, eased - i * 0.025D));
             ParticleEffects.spawnForcedSimple(world, Particle.REVERSE_PORTAL, tail, 1, 0.0D, 0.0D, 0.0D, 0.0D);
         }
@@ -583,14 +617,17 @@ public final class EndFightService {
         for (PillarRitualNode node : session.nodes()) {
             if (node.type() != RitualNodeType.FINAL_ANCHOR
                     && node.active()
-                    && (frame + index) % 5L == 0L) {
+                    && (frame + index) % 3L == 0L) {
+                double pulse = 0.5D + 0.5D * Math.sin((ritual.elapsedTicks() + index * 7L) / 8.0D);
+                Location nodeFocus = node.pillarTop().add(0.0D, 1.0D + pulse * 0.8D, 0.0D);
                 ParticleEffects.spawnForcedBeam(
                         world,
-                        node.pillarTop().add(0.0D, 1.0D, 0.0D),
+                        nodeFocus,
                         focus,
                         Particle.REVERSE_PORTAL,
-                        24
+                        30
                 );
+                ParticleEffects.spawnForcedOrbit(world, nodeFocus, 1.2D + pulse * 0.8D, ritual.elapsedTicks() / 6.0D, 0.25D, Particle.END_ROD, 20);
             }
             index++;
         }
@@ -614,21 +651,21 @@ public final class EndFightService {
         for (int i = 0; i < 22; i++) {
             double progress = i / 22.0D;
             double angle = phase + progress * Math.PI * 6.0D;
-            Location point = center(world).add(
+            Location point = visualCenter(world).add(
                     Math.cos(angle) * (2.5D + progress * 2.0D) * contraction,
                     1.0D + progress * 28.0D,
                     Math.sin(angle) * (2.5D + progress * 2.0D) * contraction
             );
             ParticleEffects.spawnForcedSimple(world, Particle.DRAGON_BREATH, point, 1, 0.0D, 0.0D, 0.0D, 0.0D);
         }
-        ParticleEffects.spawnForcedBeam(world, focus, center(world).add(0.0D, 36.0D, 0.0D), Particle.END_ROD, 24);
+        ParticleEffects.spawnForcedBeam(world, focus, visualCenter(world).add(0.0D, 36.0D, 0.0D), Particle.END_ROD, 24);
 
         long pulseInterval = finale ? 20L : 40L;
         if (ritual.elapsedTicks() % pulseInterval < timing.animationIntervalTicks()) {
             double radius = finale ? 4.0D + finaleProgress * 18.0D : 8.0D;
             ParticleEffects.spawnForcedOrbit(
                     world,
-                    center(world).add(0.0D, 0.25D, 0.0D),
+                    visualCenter(world).add(0.0D, 0.25D, 0.0D),
                     radius,
                     0.0D,
                     0.0D,
@@ -655,7 +692,7 @@ public final class EndFightService {
     ) {
         if (ritual.crossed(previousTicks, timing.buildUpTicks())) {
             showRitualTitle(world, "Die erste Bindung beginnt", "Folgt dem Impuls");
-            world.playSound(center(world), Sound.BLOCK_BEACON_ACTIVATE, 3.0F, 0.55F);
+            world.playSound(visualCenter(world), Sound.BLOCK_BEACON_ACTIVATE, 3.0F, 0.55F);
         }
         if (ritual.crossed(previousTicks, timing.convergenceStartTick())) {
             showRitualTitle(world, "Die Energien vereinen sich", "Das Ende beginnt zu beben");
@@ -668,9 +705,9 @@ public final class EndFightService {
         if (ritual.elapsedTicks() < timing.buildUpTicks()
                 && ritual.elapsedTicks() % 100L < timing.animationIntervalTicks()) {
             float awakeningPitch = (float) (0.45D + 0.4D * ritual.elapsedTicks() / timing.buildUpTicks());
-            world.playSound(center(world), Sound.BLOCK_BEACON_AMBIENT, 1.5F, awakeningPitch);
-            world.playSound(center(world), Sound.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.4F, awakeningPitch);
-            world.playSound(center(world), Sound.ENTITY_EVOKER_PREPARE_SUMMON, 1.3F, awakeningPitch);
+            world.playSound(visualCenter(world), Sound.BLOCK_BEACON_AMBIENT, 1.5F, awakeningPitch);
+            world.playSound(visualCenter(world), Sound.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.4F, awakeningPitch);
+            world.playSound(visualCenter(world), Sound.ENTITY_EVOKER_PREPARE_SUMMON, 1.3F, awakeningPitch);
         }
     }
 
@@ -700,7 +737,7 @@ public final class EndFightService {
     }
 
     private void faceRitualEvokers(FirstEndRitualSession ritual, World world) {
-        Location target = center(world).add(0.0D, 1.0D, 0.0D);
+        Location target = visualCenter(world).add(0.0D, 1.0D, 0.0D);
         for (UUID evokerId : ritual.evokerIds()) {
             Entity entity = Bukkit.getEntity(evokerId);
             if (entity instanceof Evoker evoker && evoker.isValid()) {
@@ -721,7 +758,7 @@ public final class EndFightService {
     }
 
     private Location ritualFocus(World world) {
-        return center(world).add(0.0D, 18.0D, 0.0D);
+        return visualCenter(world).add(0.0D, 18.0D, 0.0D);
     }
 
     private void showRitualTitle(World world, String title, String subtitle) {
@@ -741,7 +778,12 @@ public final class EndFightService {
             World world,
             PillarRitualNode node
     ) {
-        Location location = node.pillarTop();
+        Optional<Location> spawnLocation = totemCrystals.firstRitualSpawnLocation(node, world);
+        if (spawnLocation.isEmpty()) {
+            plugin.getLogger().warning("Could not activate first ritual node without valid bedrock cap at " + node.pillarTop() + ".");
+            return;
+        }
+        Location location = spawnLocation.get();
         ritual.evoker(node.id())
                 .map(Bukkit::getEntity)
                 .filter(Evoker.class::isInstance)
@@ -770,19 +812,21 @@ public final class EndFightService {
                     evoker.remove();
                 });
         Location impact = location.clone().add(0.0D, 1.0D, 0.0D);
-        ParticleEffects.spawnForcedBeam(world, center(world).add(0.0D, 1.2D, 0.0D), impact, Particle.END_ROD, 36);
+        ParticleEffects.spawnForcedBeam(world, visualCenter(world).add(0.0D, 1.2D, 0.0D), impact, Particle.END_ROD, 36);
         ParticleEffects.spawnForcedOrbit(world, impact, 2.0D, 0.0D, 0.0D, Particle.END_ROD, 42);
         ParticleEffects.spawnForcedOrbit(world, impact, 3.5D, Math.PI / 10.0D, 0.15D, Particle.REVERSE_PORTAL, 52);
         world.strikeLightningEffect(impact);
         world.playSound(location, Sound.ENTITY_EVOKER_CAST_SPELL, 1.8F, 0.7F);
         world.playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.2F, 1.35F);
 
-        EnderCrystal crystal = world.spawn(location, EnderCrystal.class, spawned -> {
-            spawned.setShowingBottom(false);
-            spawned.getPersistentDataContainer().set(ritualCrystalKey, PersistentDataType.BYTE, (byte) 1);
-        });
-        node.bindCrystal(crystal.getUniqueId(), false);
-        node.setHealth(nodeHealth(session, config.crystalHealth(session.activeParticipantCount(config))));
+        if (totemCrystals.spawnRitualCrystal(
+                world,
+                node,
+                nodeHealth(session, config.crystalHealth(session.activeParticipantCount(config)))
+        ).isEmpty()) {
+            plugin.getLogger().warning("Could not spawn first ritual crystal without valid bedrock cap at " + node.pillarTop() + ".");
+            return;
+        }
     }
 
     private void completeFirstRitual(
@@ -799,9 +843,7 @@ public final class EndFightService {
         }
         removeRitualEvokers(ritual);
         for (PillarRitualNode node : session.nodes()) {
-            node.crystalUniqueId()
-                    .map(Bukkit::getEntity)
-                    .ifPresent(entity -> entity.getPersistentDataContainer().remove(ritualCrystalKey));
+            totemCrystals.clearRitualCrystalTag(node);
         }
         ritualsByWorld.remove(world.getName());
         gatheringsByWorld.remove(world.getName());
@@ -816,7 +858,7 @@ public final class EndFightService {
         }
         dragon.teleport(center(world).add(0.0D, 35.0D, 0.0D));
         setDragonPhase(dragon, EnderDragon.Phase.CIRCLING);
-        Location finaleCenter = center(world).add(0.0D, 1.0D, 0.0D);
+        Location finaleCenter = visualCenter(world).add(0.0D, 1.0D, 0.0D);
         ParticleEffects.spawnForcedOrbit(world, finaleCenter, 7.0D, 0.0D, 0.15D, Particle.END_ROD, 70);
         ParticleEffects.spawnForcedOrbit(world, finaleCenter, 15.0D, 0.0D, 0.25D, Particle.REVERSE_PORTAL, 100);
         ParticleEffects.spawnForcedOrbit(world, finaleCenter, 24.0D, 0.0D, 0.35D, Particle.DRAGON_BREATH, 130);
@@ -831,7 +873,7 @@ public final class EndFightService {
                 5.0D
         );
         world.strikeLightningEffect(finaleCenter);
-        world.playSound(center(world), Sound.ENTITY_ENDER_DRAGON_GROWL, 5.0F, 0.6F);
+        world.playSound(visualCenter(world), Sound.ENTITY_ENDER_DRAGON_GROWL, 5.0F, 0.6F);
         announce(world, message("fight.messages.ritual-complete", "Der Drache ist erwacht."));
         activateFight(session, dragon);
     }
@@ -839,11 +881,11 @@ public final class EndFightService {
     private void activateFight(EndFightSession session, EnderDragon dragon) {
         session.setActivationState(FightActivationState.ACTIVE);
         unlockNodesForPhase(session, FightPhase.OPENING, dragon.getWorld());
-        syncCrystalIndicators(session, dragon.getWorld());
+        totemCrystals.syncCrystalIndicators(session, dragon.getWorld());
         session.setNextArenaEventTick(settings.cooldown(session.fightProfile(), config.eventBaseCooldownTicks()));
         session.setNextDragonAttackTick(settings.cooldown(session.fightProfile(), config.attackBaseCooldownTicks()));
         session.beginGuardianPhase(FightPhase.OPENING);
-        cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.OPENING, center(dragon.getWorld()));
+        cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.OPENING, visualCenter(dragon.getWorld()));
         applyDragonHealth(dragon, session);
         updatePhase(dragon, session);
         syncBossBar(dragon, session);
@@ -1038,6 +1080,7 @@ public final class EndFightService {
         }
 
         Location location = crystal.getLocation();
+        maybeSpawnReactiveGuardian(session, location.getWorld(), player);
         double appliedDamage = session.crystalWarded(crystal.getUniqueId())
                 ? damage * (1.0D - config.guardians().crystalWardReduction())
                 : damage;
@@ -1047,7 +1090,7 @@ public final class EndFightService {
         if (sourceLocation != null) {
             ParticleEffects.spawnBeam(location.getWorld(), sourceLocation, location, Particle.END_ROD);
         }
-        updateCrystalIndicator(node.get());
+        totemCrystals.updateCrystalIndicator(node.get());
         applyCrystalThorns(session, node.get(), player, location);
 
         if (destroyed) {
@@ -1130,11 +1173,95 @@ public final class EndFightService {
         });
     }
 
+    private void monitorDragonRespawn(World world) {
+        DragonBattle battle = world.getEnderDragonBattle();
+
+        DragonBattle.RespawnPhase phase = battle == null
+                ? DragonBattle.RespawnPhase.NONE
+                : battle.getRespawnPhase();
+        String worldName = world.getName();
+        DragonBattle.RespawnPhase previous = respawnPhasesByWorld.get(worldName);
+        if (previous == phase) {
+            return;
+        }
+
+        if (phase == DragonBattle.RespawnPhase.NONE) {
+            if (previous != null && previous != DragonBattle.RespawnPhase.NONE) {
+                respawnPhasesByWorld.remove(worldName);
+            }
+            return;
+        }
+
+        respawnPhasesByWorld.put(worldName, phase);
+        Location origin = visualCenter(world);
+        List<Location> crystals = battle == null
+                ? List.of()
+                : battle.getRespawnCrystals().stream().map(Entity::getLocation).toList();
+        cinematicDirector.beginRespawnPhase(world, phase, origin, crystals);
+        announceRespawnPhase(world, phase, origin);
+    }
+
+    private void announceRespawnPhase(World world, DragonBattle.RespawnPhase phase, Location origin) {
+        switch (phase) {
+            case START, PREPARING_TO_SUMMON_PILLARS -> {
+                showRespawnTitle(
+                        world,
+                        message("fight.messages.respawn-start-title", "Die Leere antwortet"),
+                        message("fight.messages.respawn-start-subtitle", "Der Drachenrespawn beginnt")
+                );
+                announce(world, message("fight.messages.respawn-start", "Die Endkristalle reissen die Leere auf."));
+                world.playSound(origin, Sound.BLOCK_END_PORTAL_SPAWN, 2.8F, 0.45F);
+            }
+            case SUMMONING_PILLARS -> {
+                showRespawnTitle(
+                        world,
+                        message("fight.messages.respawn-pillars-title", "Die Pfeiler erwachen"),
+                        message("fight.messages.respawn-pillars-subtitle", "Alte Macht kehrt in die Arena zurueck")
+                );
+                announce(world, message("fight.messages.respawn-pillars", "Die Obsidiansaeulen werden neu geformt."));
+                world.playSound(origin, Sound.BLOCK_BEACON_ACTIVATE, 2.5F, 0.5F);
+            }
+            case SUMMONING_DRAGON -> {
+                showRespawnTitle(
+                        world,
+                        message("fight.messages.respawn-dragon-title", "Der Drache kehrt zurueck"),
+                        message("fight.messages.respawn-dragon-subtitle", "Die Leere nimmt Gestalt an")
+                );
+                announce(world, message("fight.messages.respawn-dragon", "Der Drache wird aus der Leere gerufen."));
+                world.playSound(origin, Sound.ENTITY_ENDER_DRAGON_GROWL, 4.0F, 0.55F);
+            }
+            case END -> {
+                showRespawnTitle(
+                        world,
+                        message("fight.messages.respawn-complete-title", "Der Drache ist erwacht"),
+                        message("fight.messages.respawn-complete-subtitle", "Der Kampf beginnt erneut")
+                );
+                announce(world, message("fight.messages.respawn-complete", "Der Drache ist zurueckgekehrt."));
+                world.playSound(origin, Sound.ENTITY_ENDER_DRAGON_AMBIENT, 3.5F, 0.7F);
+            }
+            case NONE -> {
+            }
+        }
+    }
+
+    private void showRespawnTitle(World world, String title, String subtitle) {
+        Title renderedTitle = Title.title(
+                Component.text(title),
+                Component.text(subtitle),
+                Title.Times.times(Duration.ofMillis(500L), Duration.ofSeconds(3L), Duration.ofMillis(900L))
+        );
+        for (Player player : activePlayers(world)) {
+            player.showTitle(renderedTitle);
+            player.sendActionBar(Component.text(subtitle));
+        }
+    }
+
     private void tick() {
         for (World world : Bukkit.getWorlds()) {
             if (world.getEnvironment() != World.Environment.THE_END) {
                 continue;
             }
+            monitorDragonRespawn(world);
             for (EnderDragon dragon : world.getEntitiesByClass(EnderDragon.class)) {
                 if (!dragon.isDead()) {
                     trackDragon(dragon);
@@ -1158,7 +1285,11 @@ public final class EndFightService {
                 continue;
             }
 
-            ensurePortalFinalAnchor(session, world);
+            totemCrystals.ensurePortalFinalAnchor(
+                    session,
+                    world,
+                    nodeHealth(session, config.finalAnchor().health(session.activeParticipantCount(config)))
+            );
             if (!session.active()) {
                 makeDragonDormant(dragon.get());
                 if (session.activationState() == FightActivationState.DORMANT) {
@@ -1177,7 +1308,7 @@ public final class EndFightService {
             rememberAllowedDragonHealth(session, dragon.get());
             applyAnchorPull(session, world);
             showRitualAnimations(session, world, dragon.get());
-            syncCrystalIndicators(session, world);
+            totemCrystals.syncCrystalIndicators(session, world);
             syncBossBar(dragon.get(), session);
             maybeRunArenaEvent(session, world);
             maybeRunDragonAttack(session, world, dragon.get());
@@ -1227,6 +1358,13 @@ public final class EndFightService {
     }
 
     private void tickCinematics() {
+        for (World world : Bukkit.getWorlds()) {
+            if (world.getEnvironment() != World.Environment.THE_END) {
+                continue;
+            }
+            cinematicDirector.advanceClock(world);
+            cinematicDirector.tickRespawn(world, visualCenter(world));
+        }
         for (EndFightSession session : List.copyOf(sessionsByWorld.values())) {
             World world = Bukkit.getWorld(session.worldName());
             Optional<EnderDragon> dragon = dragon(session);
@@ -1234,7 +1372,7 @@ public final class EndFightService {
                 cinematicDirector.clear(session.worldName());
                 continue;
             }
-            cinematicDirector.tick(world, session, dragon.get(), center(world));
+            cinematicDirector.tick(world, session, dragon.get(), visualCenter(world));
         }
     }
 
@@ -1824,15 +1962,18 @@ public final class EndFightService {
     }
 
     private void recordCrystalLayout(String worldName, EndFightSession session) {
-        List<String> positions = session.nodes().stream()
-                .filter(PillarRitualNode::active)
+        List<String> positions = ritualNodes(session).stream()
                 .map(node -> {
                     Location top = node.pillarTop();
                     return top.getBlockX() + "," + top.getBlockY() + "," + top.getBlockZ();
                 })
                 .toList();
         if (dragonEggService.recordCrystalLayout(worldName, positions)) {
-            plugin.getLogger().info("Stored first End crystal layout with " + positions.size() + " pillar positions.");
+            plugin.getLogger().info("Stored complete first End crystal layout with " + positions.size() + " pillar positions.");
+        } else if (positions.size() < 10) {
+            int existingPositions = dragonEggService.state().crystalLayoutPositions().size();
+            plugin.getLogger().warning("Skipped incomplete first End crystal layout scan with "
+                    + positions.size() + " pillar positions; existing layout has " + existingPositions + ".");
         }
     }
 
@@ -1842,95 +1983,26 @@ public final class EndFightService {
                 .toList();
     }
 
-    private void ensurePortalFinalAnchor(EndFightSession session, World world) {
-        if (session.finalAnchorDestroyed()) {
-            return;
-        }
-
-        Location anchorLocation = portalAnchorLocation(world);
-        List<EnderCrystal> taggedAnchors = world.getEntitiesByClass(EnderCrystal.class).stream()
-                .filter(this::isPortalAnchor)
-                .sorted(Comparator.comparingDouble(crystal -> crystal.getLocation().distanceSquared(anchorLocation)))
-                .toList();
-        EnderCrystal crystal = taggedAnchors.isEmpty() ? null : taggedAnchors.get(0);
-        for (int index = 1; index < taggedAnchors.size(); index++) {
-            taggedAnchors.get(index).remove();
-        }
-
-        PillarRitualNode node = session.finalAnchor().orElse(null);
-        boolean boundCrystalPresent = node != null
-                && node.active()
-                && node.crystalUniqueId().map(Bukkit::getEntity).filter(EnderCrystal.class::isInstance).isPresent();
-        if (boundCrystalPresent) {
-            if (crystal != null && node.crystalUniqueId().filter(crystal.getUniqueId()::equals).isEmpty()) {
-                crystal.remove();
-            }
-            return;
-        }
-
-        if (crystal == null || !crystal.isValid()) {
-            crystal = world.spawn(anchorLocation, EnderCrystal.class, spawned -> {
-                spawned.setShowingBottom(false);
-                spawned.getPersistentDataContainer().set(portalAnchorKey, PersistentDataType.BYTE, (byte) 1);
-            });
-        } else if (crystal.getLocation().distanceSquared(anchorLocation) > 0.25D) {
-            crystal.teleport(anchorLocation);
-        }
-
-        if (node == null) {
-            node = new PillarRitualNode(UUID.randomUUID(), anchorLocation, null);
-            session.addNode(node);
-        }
-        node.bindCrystal(crystal.getUniqueId(), true);
-        node.assignType(RitualNodeType.FINAL_ANCHOR);
-        node.setHealth(nodeHealth(
-                session,
-                config.finalAnchor().health(session.activeParticipantCount(config))
-        ));
-        if (session.finalPhaseActive()) {
-            node.unlockFor(FightPhase.FINAL);
-        }
-        syncCrystalIndicator(node, world);
-    }
-
-    private boolean isPortalAnchor(Entity entity) {
-        return entity != null
-                && entity.getPersistentDataContainer().has(portalAnchorKey, PersistentDataType.BYTE);
-    }
-
-    private Location portalAnchorLocation(World world) {
-        int blockX = (int) Math.floor(config.arenaCenterX());
-        int blockZ = (int) Math.floor(config.arenaCenterZ());
-        int upperY = Math.min(world.getMaxHeight() - 1, 90);
-        int lowerY = Math.max(world.getMinHeight(), 40);
-        for (int y = upperY; y >= lowerY; y--) {
-            if (world.getBlockAt(blockX, y, blockZ).getType() == Material.BEDROCK) {
-                return new Location(world, blockX + 0.5D, y + 1.0D, blockZ + 0.5D);
-            }
-        }
-        return center(world);
-    }
-
     private void updatePhase(EnderDragon dragon, EndFightSession session) {
         double maxHealth = dragon.getMaxHealth();
         FightPhase previous = session.phase();
         FightPhase phase = session.updatePhase(dragon.getHealth(), maxHealth);
         if (phase != previous) {
-            session.beginGuardianPhase(phase);
+            session.beginGuardianPhase(phase, normalGuardianCount(session));
         }
 
         if (phase == FightPhase.TOTEMS && session.markPhaseSpawned(FightPhase.TOTEMS)) {
-            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.TOTEMS, center(dragon.getWorld()));
+            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.TOTEMS, visualCenter(dragon.getWorld()));
             unlockNodesForPhase(session, phase, dragon.getWorld());
             announce(dragon.getWorld(), message("fight.messages.phase-totems", "Die Endkristalle binden ihre Macht an den Drachen."));
         }
         if (phase == FightPhase.ESCALATION && session.markPhaseSpawned(FightPhase.ESCALATION)) {
-            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.ESCALATION, center(dragon.getWorld()));
+            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.ESCALATION, visualCenter(dragon.getWorld()));
             unlockNodesForPhase(session, phase, dragon.getWorld());
             announce(dragon.getWorld(), message("fight.messages.phase-escalation", "Das Ende wird instabil."));
         }
         if (phase == FightPhase.FINAL && session.markPhaseSpawned(FightPhase.FINAL)) {
-            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.FINAL, center(dragon.getWorld()));
+            cinematicDirector.beginPhase(dragon.getWorld(), FightPhase.FINAL, visualCenter(dragon.getWorld()));
             session.finalAnchor()
                     .filter(PillarRitualNode::active)
                     .ifPresent(anchor -> anchor.setHealth(nodeHealth(
@@ -1941,7 +2013,7 @@ public final class EndFightService {
             session.setNextArenaEventTick(Math.min(session.nextArenaEventTick(), session.tick() + config.eventFinalCooldownTicks()));
             announce(dragon.getWorld(), message("fight.messages.phase-final", "Finale Anker binden den Drachen."));
             announce(dragon.getWorld(), message("fight.messages.final-anchor-activated", "Der Portalanker erwacht und versiegelt den Drachen."));
-            dragon.getWorld().playSound(center(dragon.getWorld()), Sound.ENTITY_ENDER_DRAGON_GROWL, 4.0F, 0.6F);
+            dragon.getWorld().playSound(visualCenter(dragon.getWorld()), Sound.ENTITY_ENDER_DRAGON_GROWL, 4.0F, 0.6F);
         } else if (phase != previous) {
             syncBossBar(dragon, session);
         }
@@ -1982,7 +2054,7 @@ public final class EndFightService {
                 world.playSound(node.pillarTop(), Sound.BLOCK_BEACON_ACTIVATE, 1.5F, 1.2F);
                 world.playSound(node.pillarTop(), Sound.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.8F, 0.65F);
                 world.playSound(node.pillarTop(), Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1.4F, 0.85F);
-                updateCrystalIndicator(node);
+                totemCrystals.updateCrystalIndicator(node);
             }
         }
     }
@@ -2067,7 +2139,7 @@ public final class EndFightService {
                 }
             }
         }
-        removeIndicator(node);
+        totemCrystals.removeIndicator(node);
         node.deactivate();
         if (location.getWorld() != null) {
             ParticleEffects.spawnShockwave(location.getWorld(), location, 2.5D, Particle.END_ROD);
@@ -2157,9 +2229,10 @@ public final class EndFightService {
         showGuardianAuras(session, world);
         List<Player> players = activePlayers(world);
         int maxGuardians = guardians.maxForPlayers(players.size());
+        int normalGuardians = normalGuardianCount(session);
         int phaseBudget = settings.guardianBudget(session.fightProfile(), session.phase(), players.size());
         if (maxGuardians <= 0
-                || session.guardianUniqueIds().size() >= maxGuardians
+                || normalGuardians >= maxGuardians
                 || session.guardianBudgetConsumed(session.phase()) >= phaseBudget
                 || session.tick() < session.nextGuardianSpawnTick()) {
             return;
@@ -2186,7 +2259,7 @@ public final class EndFightService {
         List<Player> players = activePlayers(world);
         int maxGuardians = guardians.maxForPlayers(players.size());
         int phaseBudget = settings.guardianBudget(session.fightProfile(), session.phase(), players.size());
-        while (session.guardianUniqueIds().size() < maxGuardians
+        while (normalGuardianCount(session) < maxGuardians
                 && session.guardianBudgetConsumed(session.phase()) < phaseBudget) {
             Optional<GuardianKind> kind = chooseGuardianKind(session);
             if (kind.isEmpty()) {
@@ -2199,6 +2272,34 @@ public final class EndFightService {
             }
         }
         session.setNextGuardianSpawnTick(session.tick() + guardians.spawnIntervalTicks());
+    }
+
+    private void maybeSpawnReactiveGuardian(EndFightSession session, World world, Player attacker) {
+        EndFightConfig.GuardianConfig guardians = config.guardians();
+        if (!guardians.enabled()
+                || !guardians.reactiveEnabled()
+                || session.phase() == FightPhase.OPENING
+                || session.tick() < session.nextReactiveGuardianSpawnTick()) {
+            return;
+        }
+
+        List<Player> players = activePlayers(world);
+        int maxGuardians = guardians.maxForPlayers(players.size());
+        int phaseBudget = settings.guardianBudget(session.fightProfile(), session.phase(), players.size());
+        if (maxGuardians <= 0
+                || normalGuardianCount(session) >= maxGuardians
+                || session.guardianBudgetConsumed(session.phase()) >= phaseBudget) {
+            return;
+        }
+
+        Map<GuardianKind, Integer> weights = new java.util.EnumMap<>(GuardianKind.class);
+        weights.put(GuardianKind.PHANTOM, guardians.reactivePhantomWeight());
+        weights.put(GuardianKind.VEX, guardians.reactiveVexWeight());
+        weights.entrySet().removeIf(entry -> entry.getValue() <= 0 || !guardianKindAvailable(session, entry.getKey()));
+        Optional<GuardianKind> kind = WeightedRandomSelector.choose(weights);
+        if (kind.isPresent() && spawnGuardian(session, world, kind.get(), players, attacker == null ? null : attacker.getLocation())) {
+            session.setNextReactiveGuardianSpawnTick(session.tick() + guardians.reactiveCooldownTicks());
+        }
     }
 
     private Map<GuardianKind, Integer> guardianWeights(FightPhase phase) {
@@ -2253,20 +2354,30 @@ public final class EndFightService {
         return count;
     }
 
-    private void spawnGuardian(EndFightSession session, World world, GuardianKind kind, List<Player> players) {
-        Location location = guardianSpawnLocation(session, world, kind, players);
+    private boolean spawnGuardian(EndFightSession session, World world, GuardianKind kind, List<Player> players) {
+        return spawnGuardian(session, world, kind, players, null);
+    }
+
+    private boolean spawnGuardian(
+            EndFightSession session,
+            World world,
+            GuardianKind kind,
+            List<Player> players,
+            Location preferredLocation
+    ) {
+        Location location = guardianSpawnLocation(session, world, kind, players, preferredLocation);
         if (location == null) {
-            return;
+            return false;
         }
         LivingEntity guardian = switch (kind) {
             case ENDERMAN -> world.spawn(location, Enderman.class, spawned -> prepareGuardian(spawned, "Void Interceptor"));
             case SHULKER -> world.spawn(location, Shulker.class, spawned -> prepareGuardian(spawned, "Shulker Sentry"));
             case PHANTOM -> world.spawn(location, Phantom.class, spawned -> {
-                prepareGuardian(spawned, "Phantom-Leerenjäger");
+                prepareGuardian(spawned, "Void-Phantom");
                 setAttribute(spawned, Attribute.GENERIC_MAX_HEALTH, config.guardians().phantomMaxHealth());
             });
             case VEX -> world.spawn(location, Vex.class, spawned -> {
-                prepareGuardian(spawned, "Vex-Leerenschatten");
+                prepareGuardian(spawned, "Void-Vex");
                 setAttribute(spawned, Attribute.GENERIC_MAX_HEALTH, config.guardians().vexMaxHealth());
             });
         };
@@ -2277,6 +2388,7 @@ public final class EndFightService {
                 mob.setTarget(target);
             }
         });
+        return true;
     }
 
     private void prepareGuardian(LivingEntity entity, String name) {
@@ -2314,7 +2426,8 @@ public final class EndFightService {
             EndFightSession session,
             World world,
             GuardianKind kind,
-            List<Player> players
+            List<Player> players,
+            Location preferredLocation
     ) {
         Optional<Player> focus = guardianTarget(session, world);
         if (kind == GuardianKind.PHANTOM && focus.isPresent()) {
@@ -2323,6 +2436,14 @@ public final class EndFightService {
         if (kind == GuardianKind.ENDERMAN && focus.isPresent()) {
             Location base = focus.get().getLocation();
             return base.clone().add(6.0D, 0.0D, 0.0D);
+        }
+        if (kind == GuardianKind.VEX) {
+            if (preferredLocation != null && preferredLocation.getWorld() == world) {
+                return preferredLocation.clone().add(4.0D, 1.0D, 0.0D);
+            }
+            if (focus.isPresent()) {
+                return focus.get().getLocation().clone().add(4.0D, 1.0D, 0.0D);
+            }
         }
         Optional<Location> nodeLocation = session.nodes().stream()
                 .filter(PillarRitualNode::active)
@@ -2335,6 +2456,17 @@ public final class EndFightService {
             return players.get(0).getLocation().clone().add(8.0D, 0.0D, 0.0D);
         }
         return center(world);
+    }
+
+    private int normalGuardianCount(EndFightSession session) {
+        int count = 0;
+        for (UUID guardianId : session.guardianUniqueIds()) {
+            Entity entity = Bukkit.getEntity(guardianId);
+            if (entity instanceof LivingEntity livingEntity && livingEntity.isValid() && !isObeliskGuardian(livingEntity)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void runGuardianAttacks(EndFightSession session, World world) {
@@ -2440,7 +2572,7 @@ public final class EndFightService {
             Location mark = fallbackTarget.getLocation().clone().add(0.0D, 0.2D, 0.0D);
             ParticleEffects.spawnCircle(world, mark, 2.5D, Particle.DRAGON_BREATH, 40);
             world.playSound(mark, Sound.ENTITY_PHANTOM_SWOOP, 1.7F, 0.55F);
-            fallbackTarget.sendActionBar(Component.text("Der Phantom-Leerenjäger hat dich markiert."));
+            fallbackTarget.sendActionBar(Component.text("Der Void-Phantom hat dich markiert."));
             return;
         }
         if (session.tick() < pending.impactTick()) {
@@ -2477,7 +2609,7 @@ public final class EndFightService {
         vexCurseUntilTicks.put(target.getUniqueId(), session.tick() + config.guardians().vexCurseTicks());
         vexCurseWorlds.put(target.getUniqueId(), session.worldName());
         target.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, (int) config.guardians().vexCurseTicks(), 0));
-        target.sendActionBar(Component.text("Der Leerenschatten macht dich verwundbar."));
+        target.sendActionBar(Component.text("Der Void-Vex macht dich verwundbar."));
         world.playSound(target.getLocation(), Sound.ENTITY_VEX_CHARGE, 1.5F, 0.55F);
     }
 
@@ -3144,7 +3276,7 @@ public final class EndFightService {
                 .map(Player::getLocation)
                 .map(Location::clone)
                 .toList();
-        cinematicDirector.beginArenaEvent(world, ArenaEventType.VOID_RIFT, center(world), targets, config.eventWarningTicks());
+        cinematicDirector.beginArenaEvent(world, ArenaEventType.VOID_RIFT, visualCenter(world), targets, config.eventWarningTicks());
         for (Location target : targets) {
             warnCircle(target, Particle.PORTAL);
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -3168,7 +3300,7 @@ public final class EndFightService {
         cinematicDirector.beginArenaEvent(
                 world,
                 ArenaEventType.BREATH_STORM,
-                center(world).add(0.0D, 18.0D, 0.0D),
+                visualCenter(world).add(0.0D, 18.0D, 0.0D),
                 targets.stream().limit(count).map(Player::getLocation).map(Location::clone).toList(),
                 config.eventWarningTicks()
         );
@@ -3191,13 +3323,14 @@ public final class EndFightService {
 
     private void runShockwave(EndFightSession session, World world) {
         Location origin = session.finalPhaseActive() ? center(world) : randomNodeLocation(session).orElse(center(world));
-        cinematicDirector.beginArenaEvent(world, ArenaEventType.SHOCKWAVE, origin, List.of(origin), config.eventWarningTicks());
-        ParticleEffects.spawnShockwave(world, origin, 3.0D, Particle.END_ROD);
+        Location visualOrigin = session.finalPhaseActive() ? visualCenter(world) : origin;
+        cinematicDirector.beginArenaEvent(world, ArenaEventType.SHOCKWAVE, visualOrigin, List.of(visualOrigin), config.eventWarningTicks());
+        ParticleEffects.spawnShockwave(world, visualOrigin, 3.0D, Particle.END_ROD);
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!validDelayedLocation(origin)) {
                 return;
             }
-            world.playSound(origin, Sound.ENTITY_GENERIC_EXPLODE, 2.0F, 0.8F);
+            world.playSound(visualOrigin, Sound.ENTITY_GENERIC_EXPLODE, 2.0F, 0.8F);
             for (Player player : activePlayers(world)) {
                 if (AoeGeometry.hitsPoint(player.getLocation(), origin, 32.0D, config.pointAttackVerticalRange())) {
                     Vector push = player.getLocation().toVector().subtract(origin.toVector()).normalize().multiply(1.2D);
@@ -3216,10 +3349,11 @@ public final class EndFightService {
         }
 
         Location center = center(world);
+        Location visualCenter = visualCenter(world);
         if (session.tick() % 40L == 0L) {
             for (PillarRitualNode node : session.nodes()) {
                 if (node.unlocked() && node.type() == RitualNodeType.GRAVITY_ANCHOR) {
-                    ParticleEffects.spawnBeam(world, node.pillarTop(), center, Particle.REVERSE_PORTAL);
+                    ParticleEffects.spawnBeam(world, node.pillarTop(), visualCenter, Particle.REVERSE_PORTAL);
                     ParticleEffects.spawnShockwave(world, node.pillarTop(), 2.5D, Particle.PORTAL);
                 }
             }
@@ -3297,13 +3431,13 @@ public final class EndFightService {
                 case CRYSTAL_THORNS -> ParticleEffects.spawnSimple(world, Particle.DAMAGE_INDICATOR, top, 3, 0.8D, 0.5D, 0.8D, 0.01D);
                 case STORM_SPIRE -> ParticleEffects.spawnHelix(world, top, 1.6D, 5.0D, phase, Particle.PORTAL);
                 case GRAVITY_ANCHOR -> ParticleEffects.spawnShockwave(world, top, 2.0D + (session.tick() % 60L) / 20.0D, Particle.REVERSE_PORTAL);
-                case PILLAR_BEAM -> ParticleEffects.spawnBeam(world, top, center(world), Particle.PORTAL);
+                case PILLAR_BEAM -> ParticleEffects.spawnBeam(world, top, visualCenter(world), Particle.PORTAL);
                 case VOID_RIFT -> ParticleEffects.spawnCircle(world, top, 2.2D, Particle.REVERSE_PORTAL, 28);
                 case ENDER_VOLLEY -> ParticleEffects.spawnHelix(world, top, 1.0D, 6.0D, -phase, Particle.END_ROD);
                 case WING_GUST -> ParticleEffects.spawnShockwave(world, top, 1.5D, Particle.CLOUD);
                 case FINAL_ANCHOR -> {
                     ParticleEffects.spawnHelix(world, top, 2.0D, 7.0D, phase, Particle.END_ROD);
-                    ParticleEffects.spawnBeam(world, top, center(world), Particle.PORTAL);
+                    ParticleEffects.spawnBeam(world, top, visualCenter(world), Particle.PORTAL);
                 }
                 case NONE -> ParticleEffects.spawnSimple(world, Particle.REVERSE_PORTAL, top, 3, 0.4D, 0.4D, 0.4D, 0.01D);
             }
@@ -3313,84 +3447,6 @@ public final class EndFightService {
     private void warnCircle(Location location, Particle particle) {
         location.getWorld().playSound(location, Sound.BLOCK_BEACON_POWER_SELECT, 1.2F, 0.7F);
         ParticleEffects.spawnCircle(location.getWorld(), location, 3.0D, particle, 48);
-    }
-
-    private void syncCrystalIndicators(EndFightSession session, World world) {
-        if (!config.crystalIndicatorEnabled()) {
-            return;
-        }
-        for (PillarRitualNode node : session.nodes()) {
-            if (node.active()) {
-                syncCrystalIndicator(node, world);
-            }
-        }
-    }
-
-    private void syncCrystalIndicator(PillarRitualNode node, World world) {
-        if (!config.crystalIndicatorEnabled()) {
-            return;
-        }
-        Optional<EnderCrystal> crystal = node.crystalUniqueId()
-                .map(Bukkit::getEntity)
-                .filter(EnderCrystal.class::isInstance)
-                .map(EnderCrystal.class::cast);
-        if (crystal.isEmpty()) {
-            removeIndicator(node);
-            return;
-        }
-
-        Location location = crystal.get().getLocation().add(0.0D, config.crystalIndicatorYOffset(), 0.0D);
-        TextDisplay display = node.indicatorUniqueId()
-                .map(Bukkit::getEntity)
-                .filter(TextDisplay.class::isInstance)
-                .map(TextDisplay.class::cast)
-                .orElseGet(() -> {
-                    TextDisplay spawned = world.spawn(location, TextDisplay.class, entity -> {
-                        entity.setPersistent(false);
-                        entity.setBillboard(Display.Billboard.CENTER);
-                        entity.setSeeThrough(true);
-                        entity.setShadowed(true);
-                        entity.setBackgroundColor(Color.fromARGB(80, 0, 0, 0));
-                    });
-                    node.bindIndicator(spawned.getUniqueId());
-                    return spawned;
-                });
-        display.teleport(location);
-        updateCrystalIndicator(node);
-    }
-
-    private void updateCrystalIndicator(PillarRitualNode node) {
-        node.indicatorUniqueId()
-                .map(Bukkit::getEntity)
-                .filter(TextDisplay.class::isInstance)
-                .map(TextDisplay.class::cast)
-                .ifPresent(display -> display.text(Component.text(indicatorText(node))));
-    }
-
-    private String indicatorText(PillarRitualNode node) {
-        String nodeName = nodeName(node.type());
-        if (node.locked()) {
-            return message("fight.messages.locked-indicator", "%node%\nVersiegelt - erwacht in Phase: %phase%")
-                    .replace("%node%", nodeName)
-                    .replace("%phase%", phaseName(node.requiredPhase()));
-        }
-        return message("fight.messages.crystal-indicator", "%node%\n%bar% %health%/%max_health%")
-                .replace("%node%", nodeName)
-                .replace("%bar%", healthBar(node.health(), node.maxHealth()))
-                .replace("%health%", Long.toString(Math.round(node.health())))
-                .replace("%max_health%", Long.toString(Math.round(node.maxHealth())));
-    }
-
-    private String healthBar(double health, double maxHealth) {
-        int width = Math.max(4, config.crystalIndicatorBarWidth());
-        double ratio = maxHealth <= 0.0D ? 0.0D : Math.max(0.0D, Math.min(1.0D, health / maxHealth));
-        int filled = (int) Math.round(width * ratio);
-        return "|".repeat(filled) + "-".repeat(width - filled);
-    }
-
-    private void removeIndicator(PillarRitualNode node) {
-        node.indicatorUniqueId().map(Bukkit::getEntity).ifPresent(Entity::remove);
-        node.clearIndicator();
     }
 
     private void buffNearbyParticipants(EndFightSession session, Location location) {
@@ -3477,6 +3533,10 @@ public final class EndFightService {
 
     private Location center(World world) {
         return new Location(world, config.arenaCenterX(), 65.0D, config.arenaCenterZ());
+    }
+
+    private Location visualCenter(World world) {
+        return VisualCenter.location(world, config.arenaCenterX(), 65.0D, config.arenaCenterZ());
     }
 
     private void syncBossBar(EnderDragon dragon, EndFightSession session) {
@@ -3616,7 +3676,7 @@ public final class EndFightService {
             }
         }
         for (PillarRitualNode node : session.nodes()) {
-            removeIndicator(node);
+            totemCrystals.removeIndicator(node);
             node.crystalUniqueId().ifPresent(obeliskSpawnedCrystals::remove);
             if (node.temporaryCrystal() || !session.active()) {
                 node.crystalUniqueId().map(Bukkit::getEntity).ifPresent(Entity::remove);
@@ -3649,10 +3709,10 @@ public final class EndFightService {
                         .anyMatch(dragon -> !dragon.isDead());
                 for (Entity entity : List.copyOf(world.getEntities())) {
                     if (entity.getPersistentDataContainer().has(ritualEvokerKey, PersistentDataType.BYTE)
-                            || entity.getPersistentDataContainer().has(ritualCrystalKey, PersistentDataType.BYTE)
+                            || totemCrystals.isRitualCrystal(entity)
                             || entity.getPersistentDataContainer().has(guardianKey, PersistentDataType.BYTE)
                             || entity.getPersistentDataContainer().has(legacyTemporaryAnchorKey, PersistentDataType.BYTE)
-                            || (isPortalAnchor(entity) && !liveDragon)) {
+                            || (totemCrystals.isPortalAnchor(entity) && !liveDragon)) {
                         entity.remove();
                     }
                 }

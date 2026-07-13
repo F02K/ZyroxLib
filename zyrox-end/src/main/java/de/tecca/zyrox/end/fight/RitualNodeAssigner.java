@@ -34,12 +34,12 @@ public final class RitualNodeAssigner {
     );
 
     public void assign(List<PillarRitualNode> nodes, UUID dragonUniqueId) {
-        List<PillarRitualNode> activeNodes = nodes.stream()
-                .filter(PillarRitualNode::active)
+        List<PillarRitualNode> ritualNodes = nodes.stream()
+                .filter(node -> node.type() != RitualNodeType.FINAL_ANCHOR)
                 .toList();
-        List<RitualNodeType> roles = rolesFor(activeNodes.size(), dragonUniqueId);
-        for (int i = 0; i < activeNodes.size(); i++) {
-            activeNodes.get(i).assignType(roles.get(i));
+        List<RitualNodeType> roles = rolesFor(ritualNodes.size(), dragonUniqueId);
+        for (int i = 0; i < ritualNodes.size(); i++) {
+            ritualNodes.get(i).assignType(roles.get(i));
         }
     }
 

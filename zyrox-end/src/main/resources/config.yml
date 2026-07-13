@@ -26,6 +26,7 @@ fight:
     phase-density: 1.0
     attack-density: 1.0
     anchor-density: 1.0
+    respawn-density: 1.35
   first-ritual:
     enabled: true
     total-seconds: 90.0
@@ -65,23 +66,35 @@ fight:
     direct-attack-stall-reposition-ticks: 45
     fallback-ritual-on-timeout: true
   phases:
-    opening: "Erwachen"
+    opening: "Beschwörung"
     totems: "Kristallritual"
     escalation: "Eskalation"
     final: "Finale Bindung"
   messages:
-    ritual-start: "Die Ritualwirker rufen den Drachen."
+    ritual-start: "Die Illager beschwören den Drachen."
     gathering-bossbar: "Versammelt euch im Pfeilerkreis: %inside%/%required% (%seconds%s)"
-    ritual-paused-bossbar: "Ritual pausiert - kehrt in den Pfeilerkreis zurueck"
-    ritual-bossbar: "Das Ritual erwacht"
+    ritual-paused-bossbar: "Ritual pausiert - kehrt in den Pfeilerkreis zurück"
+    ritual-bossbar: "Das Ritual hat begonnen"
     ritual-totem-bossbar: "Totem %current%/%total%"
-    ritual-convergence-bossbar: "Die Energien vereinen sich"
+    ritual-convergence-bossbar: "Die Magie vereint sich"
     ritual-finale-bossbar: "Der Drache erwacht"
     ritual-complete: "Der Drache ist erwacht."
     phase-totems: "Die Endkristalle binden ihre Macht an den Drachen."
     phase-escalation: "Das Ende wird instabil."
     phase-final: "Finale Anker binden den Drachen."
     final-anchor-activated: "Der Portalanker erwacht und versiegelt den Drachen."
+    respawn-start: "Die Endkristalle reissen die Dimension auf."
+    respawn-start-title: "Die Leere antwortet"
+    respawn-start-subtitle: "Der Drachenrespawn beginnt"
+    respawn-pillars: "Die Obsidiansäulen werden neu geformt."
+    respawn-pillars-title: "Die Pfeiler erwachen"
+    respawn-pillars-subtitle: "Alte Macht kehrt in die Arena zurück"
+    respawn-dragon: "Der Drache wird aus dem Void gerufen."
+    respawn-dragon-title: "Der Drache kehrt zurück"
+    respawn-dragon-subtitle: "Die Leere nimmt Gestalt an"
+    respawn-complete: "Der Drache ist zurückgekehrt."
+    respawn-complete-title: "Der Drache ist erwacht"
+    respawn-complete-subtitle: "Der Kampf beginnt erneut"
     dragon-exposed: "Der Drache ist verwundbar."
     node-fallen: "%node% ist gefallen."
     locked-indicator: "%node%\nVersiegelt - erwacht in Phase: %phase%"
@@ -118,9 +131,9 @@ fight:
       bar-width: 10
   guardians:
     enabled: true
-    spawn-interval-seconds: 14.0
-    max-per-player: 2
-    max-total: 10
+    spawn-interval-seconds: 11.0
+    max-per-player: 3
+    max-total: 14
     visual:
       scale: 1.15
       particle-interval-seconds: 1.0
@@ -130,17 +143,17 @@ fight:
         per-player: 0
         maximum: 0
       totems:
-        base: 2
-        per-player: 2
-        maximum: 10
-      escalation:
         base: 3
         per-player: 2
         maximum: 12
-      final:
+      escalation:
         base: 4
-        per-player: 2
-        maximum: 14
+        per-player: 3
+        maximum: 16
+      final:
+        base: 6
+        per-player: 3
+        maximum: 20
     phase-weights:
       opening:
         enderman: 0
@@ -151,21 +164,26 @@ fight:
       totems:
         enderman: 2
         shulker: 1
-        phantom: 4
-        vex: 4
+        phantom: 6
+        vex: 7
         obelisk: 0
       escalation:
         enderman: 2
         shulker: 2
-        phantom: 5
-        vex: 5
+        phantom: 7
+        vex: 8
         obelisk: 0
       final:
         enderman: 2
         shulker: 2
-        phantom: 6
-        vex: 6
+        phantom: 9
+        vex: 10
         obelisk: 0
+    reactive:
+      enabled: true
+      cooldown-seconds: 12.0
+      phantom-weight: 3
+      vex-weight: 4
     void-intercept:
       damage: 8.0
       weakness-seconds: 4.0
@@ -182,21 +200,21 @@ fight:
       damage-reduction: 0.5
       duration-seconds: 4.0
     phantom:
-      max-alive: 1
-      max-health: 30.0
-      dive-damage: 9.0
-      launch-velocity: 0.9
-      warning-seconds: 2.0
-      cooldown-seconds: 8.0
+      max-alive: 2
+      max-health: 34.0
+      dive-damage: 10.5
+      launch-velocity: 1.05
+      warning-seconds: 1.5
+      cooldown-seconds: 6.0
       spawn-height: 14.0
     vex:
-      max-alive: 1
-      max-health: 24.0
-      curse-damage: 6.0
-      curse-seconds: 6.0
-      outgoing-reduction: 0.15
-      incoming-increase: 0.30
-      cooldown-seconds: 7.0
+      max-alive: 2
+      max-health: 26.0
+      curse-damage: 7.5
+      curse-seconds: 8.0
+      outgoing-reduction: 0.20
+      incoming-increase: 0.45
+      cooldown-seconds: 5.0
     obelisk:
       max-alive: 10
       max-health: 300.0

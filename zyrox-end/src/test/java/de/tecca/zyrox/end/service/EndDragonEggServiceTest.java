@@ -7,6 +7,7 @@ import org.bukkit.Material;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -58,6 +59,93 @@ final class EndDragonEggServiceTest {
 
         assertTrue(firstClaim.isPresent());
         assertTrue(secondClaim.isEmpty());
+        assertEquals("First", service.state().ownerName().orElseThrow());
+    }
+
+    @Test
+    void firstPickupClaimTagsAndBlocksLaterUntaggedEggs() {
+        RecordingTagIo tagIo = new RecordingTagIo();
+        EndDragonEggService service = serviceWithClock(3500L, tagIo);
+        service.recordFirstDragonDeath("world_the_end");
+        UUID ownerUniqueId = UUID.randomUUID();
+
+        DragonEggClaim claim = service.claimAndTagFirstEgg(
+                null,
+                Material.DRAGON_EGG,
+                1,
+                ownerUniqueId,
+                "First"
+        ).orElseThrow();
+        Optional<DragonEggClaim> secondClaim = service.claimAndTagFirstEgg(
+                null,
+                Material.DRAGON_EGG,
+                1,
+                UUID.randomUUID(),
+                "Second"
+        );
+
+        assertEquals(DragonEggClaimPhase.CLAIMED, service.state().eggClaimPhase());
+        assertEquals(ownerUniqueId, service.state().ownerUniqueId().orElseThrow());
+        assertEquals(claim, tagIo.claim);
+        assertEquals(1, tagIo.writeCount);
+        assertTrue(secondClaim.isEmpty());
+        assertEquals(1, tagIo.writeCount);
+    }
+
+    @Test
+    void claimRejectsInvalidOwnerAndInvalidStacks() {
+        RecordingTagIo tagIo = new RecordingTagIo();
+        EndDragonEggService service = serviceWithClock(3600L, tagIo);
+        service.recordFirstDragonDeath("world_the_end");
+        UUID ownerUniqueId = UUID.randomUUID();
+
+        assertTrue(service.claimAndTagFirstEgg(null, Material.DRAGON_EGG, 1, null, "Owner").isEmpty());
+        assertTrue(service.claimAndTagFirstEgg(null, Material.DRAGON_EGG, 1, ownerUniqueId, "").isEmpty());
+        assertTrue(service.claimAndTagFirstEgg(null, Material.DRAGON_EGG, 2, ownerUniqueId, "Owner").isEmpty());
+        assertTrue(service.claimAndTagFirstEgg(null, Material.STONE, 1, ownerUniqueId, "Owner").isEmpty());
+        assertEquals(DragonEggClaimPhase.UNCLAIMED, service.state().eggClaimPhase());
+    }
+
+    @Test
+    void failedTagReadbackRollsBackNewPendingClaim() {
+        RecordingTagIo tagIo = new RecordingTagIo();
+        tagIo.readBack = false;
+        File file = stateFile();
+        EndDragonEggService service = new EndDragonEggService(null, storage(file), () -> 3700L, tagIo);
+        service.recordFirstDragonDeath("world_the_end");
+
+        Optional<DragonEggClaim> claim = service.claimAndTagFirstEgg(
+                null,
+                Material.DRAGON_EGG,
+                1,
+                UUID.randomUUID(),
+                "Owner"
+        );
+        EndDragonEggService reloaded = new EndDragonEggService(null, storage(file), () -> 3800L, new RecordingTagIo());
+
+        assertTrue(claim.isEmpty());
+        assertEquals(DragonEggClaimPhase.UNCLAIMED, service.state().eggClaimPhase());
+        assertEquals(DragonEggClaimPhase.UNCLAIMED, reloaded.state().eggClaimPhase());
+    }
+
+    @Test
+    void existingPendingClaimIsReusedRatherThanOverwritten() {
+        RecordingTagIo tagIo = new RecordingTagIo();
+        EndDragonEggService service = serviceWithClock(3900L, tagIo);
+        service.recordFirstDragonDeath("world_the_end");
+        UUID firstOwner = UUID.randomUUID();
+        DragonEggClaim pending = service.reserveFirstEggClaim(firstOwner, "First").orElseThrow();
+
+        DragonEggClaim claim = service.claimAndTagFirstEgg(
+                null,
+                Material.DRAGON_EGG,
+                1,
+                UUID.randomUUID(),
+                "Second"
+        ).orElseThrow();
+
+        assertEquals(pending, claim);
+        assertEquals(firstOwner, service.state().ownerUniqueId().orElseThrow());
         assertEquals("First", service.state().ownerName().orElseThrow());
     }
 
@@ -152,6 +240,18 @@ final class EndDragonEggServiceTest {
     }
 
     @Test
+    void onlyTheReservedEggIdCanBeRolledBack() {
+        FirstDragonEggState state = new FirstDragonEggState();
+        DragonEggClaim pending = new DragonEggClaim(UUID.randomUUID(), UUID.randomUUID(), "First", 1L);
+        state.reserveEggClaim(pending);
+
+        assertFalse(state.clearPendingEggClaim(UUID.randomUUID()));
+        assertEquals(DragonEggClaimPhase.PENDING, state.eggClaimPhase());
+        assertTrue(state.clearPendingEggClaim(pending.eggId()));
+        assertEquals(DragonEggClaimPhase.UNCLAIMED, state.eggClaimPhase());
+    }
+
+    @Test
     void committedClaimAndLostTrackingRemainReservedAfterReload() {
         File file = stateFile();
         EndDragonEggService service = new EndDragonEggService(null, storage(file), () -> 11000L);
@@ -225,8 +325,50 @@ final class EndDragonEggServiceTest {
         assertTrue(EndDragonEggService.canReadDragonEggNbt(Material.DRAGON_EGG, 1));
     }
 
+    @Test
+    void incompleteCrystalLayoutIsNotStored() {
+        EndDragonEggService service = serviceWithClock(16000L);
+
+        assertFalse(service.recordCrystalLayout("world_the_end", positions(7)));
+
+        assertTrue(service.state().crystalLayoutPositions().isEmpty());
+    }
+
+    @Test
+    void legacyIncompleteCrystalLayoutCanBeReplacedByCompleteLayout() throws Exception {
+        File file = stateFile();
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.set("crystal-layout.world", "world_the_end");
+        yaml.set("crystal-layout.scanned-at-epoch-ms", 1L);
+        yaml.set("crystal-layout.positions", positions(7));
+        yaml.save(file);
+        EndDragonEggService service = new EndDragonEggService(null, storage(file), () -> 17000L);
+        List<String> complete = positions(10);
+
+        assertTrue(service.recordCrystalLayout("world_the_end", complete));
+
+        assertEquals(complete, service.state().crystalLayoutPositions());
+        assertEquals(17000L, service.state().crystalLayoutScannedAtEpochMillis());
+    }
+
+    @Test
+    void completeCrystalLayoutIsNotOverwritten() {
+        EndDragonEggService service = serviceWithClock(18000L);
+        List<String> first = positions(10);
+        List<String> replacement = positions(11);
+
+        assertTrue(service.recordCrystalLayout("world_the_end", first));
+        assertFalse(service.recordCrystalLayout("world_the_end", replacement));
+
+        assertEquals(first, service.state().crystalLayoutPositions());
+    }
+
     private EndDragonEggService serviceWithClock(long epochMillis) {
         return new EndDragonEggService(null, storage(stateFile()), () -> epochMillis);
+    }
+
+    private EndDragonEggService serviceWithClock(long epochMillis, EndDragonEggService.DragonEggTagIo tagIo) {
+        return new EndDragonEggService(null, storage(stateFile()), () -> epochMillis, tagIo);
     }
 
     private DragonEggStateStorage storage(File file) {
@@ -235,5 +377,32 @@ final class EndDragonEggServiceTest {
 
     private File stateFile() {
         return tempDir.resolve("state.yml").toFile();
+    }
+
+    private List<String> positions(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(index -> index + ",80," + -index)
+                .toList();
+    }
+
+    private static final class RecordingTagIo implements EndDragonEggService.DragonEggTagIo {
+
+        private DragonEggClaim claim;
+        private int writeCount;
+        private boolean readBack = true;
+
+        @Override
+        public void write(org.bukkit.inventory.ItemStack itemStack, DragonEggClaim claim) {
+            this.claim = claim;
+            writeCount++;
+        }
+
+        @Override
+        public Optional<DragonEggClaim> read(org.bukkit.inventory.ItemStack itemStack) {
+            if (!readBack) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(claim);
+        }
     }
 }

@@ -4,6 +4,7 @@ import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionParameter;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.module.ZyroxModule;
 import de.tecca.zyrox.api.setting.ZyroxSetting;
 import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
@@ -12,6 +13,7 @@ import de.tecca.zyrox.api.setting.ZyroxSettingType;
 import de.tecca.zyrox.api.web.ZyroxDashboardView;
 import de.tecca.zyrox.dc.command.ZyroxDcCommand;
 import de.tecca.zyrox.dc.discord.DiscordBotService;
+import de.tecca.zyrox.dc.listener.ZyroxDcChatListener;
 import de.tecca.zyrox.dc.listener.ZyroxDcLoginListener;
 import de.tecca.zyrox.dc.minecraft.MinecraftAccountService;
 import de.tecca.zyrox.dc.service.VerificationService;
@@ -41,7 +43,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
 
         zyroxApi = loadZyroxApi();
         if (zyroxApi == null) {
@@ -103,6 +105,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ConfigUpdater.update(this, "config.yml");
         reloadConfig();
         if (discordBot != null) {
             startDiscordBot();
@@ -224,8 +227,9 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("behavior", "Behavior", 30));
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("join-gate", "Join Gate", 40));
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("ban-sync", "Ban Sync", 50));
-        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("storage", "Storage", 60));
-        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("permissions", "Permissions", 70));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("chat-sync", "Chat Sync", 60));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("storage", "Storage", 70));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("permissions", "Permissions", 80));
 
         registerStringSetting("discord-token", "Discord Bot Token", "Bot token used to connect ZyroxDC to Discord.", "discord", ZyroxSettingType.SECRET, "discord.token", true, adminPermission, 10, false, true);
         registerStringSetting("discord-guild-id", "Guild ID", "Discord guild id where verification is managed.", "discord", ZyroxSettingType.STRING, "discord.guild-id", true, adminPermission, 20, false, true);
@@ -249,6 +253,12 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         registerBooleanSetting("ban-sync-unwhitelist", "Unwhitelist On Discord Ban", "Removes linked Minecraft accounts from the native whitelist when Discord bans are synced.", "ban-sync", "ban-sync.unwhitelist-on-discord-ban", adminPermission, 30);
         registerStringSetting("ban-sync-kick-message", "Kick Message", "Message shown when a Discord-banned player tries to join.", "ban-sync", ZyroxSettingType.STRING, "ban-sync.kick-message", true, adminPermission, 40, false, false);
         registerStringSetting("ban-sync-minecraft-kick-message", "Minecraft Ban Kick Message", "Message shown when a player is blocked because a linked Minecraft account is banned.", "ban-sync", ZyroxSettingType.STRING, "ban-sync.minecraft-ban-kick-message", true, adminPermission, 50, false, false);
+
+        registerBooleanSetting("chat-sync-enabled", "Chat Sync Enabled", "Mirrors chat between one Discord channel and the Minecraft server chat.", "chat-sync", "chat-sync.enabled", false, adminPermission, 10);
+        registerStringSetting("chat-sync-channel-id", "Channel ID", "Discord text channel id used for chat sync.", "chat-sync", ZyroxSettingType.STRING, "chat-sync.channel-id", true, adminPermission, 20, false, false);
+        registerStringSetting("chat-sync-minecraft-format", "Minecraft To Discord Format", "Format used when Minecraft chat is sent to Discord.", "chat-sync", ZyroxSettingType.STRING, "chat-sync.minecraft-to-discord-format", true, adminPermission, 30, false, false);
+        registerStringSetting("chat-sync-discord-format", "Discord To Minecraft Format", "Format used when Discord chat is sent to Minecraft.", "chat-sync", ZyroxSettingType.STRING, "chat-sync.discord-to-minecraft-format", true, adminPermission, 40, false, false);
+        registerIntegerSetting("chat-sync-max-length", "Max Message Length", "Maximum formatted synced message length.", "chat-sync", "chat-sync.max-message-length", adminPermission, 50);
 
         registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for account links.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, adminPermission, 10, true, false);
 
@@ -275,6 +285,11 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-unwhitelist");
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-kick-message");
         zyroxApi.settings().unregister("zyrox-dc", "ban-sync-minecraft-kick-message");
+        zyroxApi.settings().unregister("zyrox-dc", "chat-sync-enabled");
+        zyroxApi.settings().unregister("zyrox-dc", "chat-sync-channel-id");
+        zyroxApi.settings().unregister("zyrox-dc", "chat-sync-minecraft-format");
+        zyroxApi.settings().unregister("zyrox-dc", "chat-sync-discord-format");
+        zyroxApi.settings().unregister("zyrox-dc", "chat-sync-max-length");
         zyroxApi.settings().unregister("zyrox-dc", "storage-sqlite-file");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-admin");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-web");
@@ -283,6 +298,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregisterCategory("zyrox-dc", "behavior");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "join-gate");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "ban-sync");
+        zyroxApi.settings().unregisterCategory("zyrox-dc", "chat-sync");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "storage");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "permissions");
     }
@@ -324,6 +340,19 @@ public final class ZyroxDcPlugin extends JavaPlugin {
             String permission,
             int order
     ) {
+        registerBooleanSetting(id, label, description, categoryId, configPath, true, permission, order);
+    }
+
+    private void registerBooleanSetting(
+            String id,
+            String label,
+            String description,
+            String categoryId,
+            String configPath,
+            boolean defaultValue,
+            String permission,
+            int order
+    ) {
         zyroxApi.settings().register("zyrox-dc", new ZyroxSetting(
                 id,
                 label,
@@ -334,8 +363,32 @@ public final class ZyroxDcPlugin extends JavaPlugin {
                 permission,
                 order,
                 false,
-                () -> getConfig().getBoolean(configPath, true),
+                () -> getConfig().getBoolean(configPath, defaultValue),
                 value -> saveConfigValue(configPath, Boolean.parseBoolean(value), false)
+        ));
+    }
+
+    private void registerIntegerSetting(
+            String id,
+            String label,
+            String description,
+            String categoryId,
+            String configPath,
+            String permission,
+            int order
+    ) {
+        zyroxApi.settings().register("zyrox-dc", new ZyroxSetting(
+                id,
+                label,
+                description,
+                categoryId,
+                ZyroxSettingType.INTEGER,
+                false,
+                permission,
+                order,
+                false,
+                () -> Integer.toString(getConfig().getInt(configPath, 256)),
+                value -> saveConfigValue(configPath, Integer.parseInt(value), false)
         ));
     }
 
@@ -363,6 +416,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
 
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new ZyroxDcLoginListener(this, storage, minecraftAccounts, verificationService), this);
+        getServer().getPluginManager().registerEvents(new ZyroxDcChatListener(this, discordBot), this);
     }
 
     private void startNativeBanReconciliation() {

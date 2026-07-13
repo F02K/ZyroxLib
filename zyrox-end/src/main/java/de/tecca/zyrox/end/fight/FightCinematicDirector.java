@@ -5,7 +5,9 @@ import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.boss.DragonBattle;
 import org.bukkit.entity.EnderDragon;
+import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
@@ -23,6 +25,7 @@ final class FightCinematicDirector {
     private final Map<String, PhaseSequence> phaseSequences = new HashMap<>();
     private final Map<String, List<AttackSequence>> attackSequences = new HashMap<>();
     private final Map<String, CollapseSequence> collapseSequences = new HashMap<>();
+    private final Map<String, RespawnSequence> respawnSequences = new HashMap<>();
 
     FightCinematicDirector(EndFightSettings.Cinematics settings) {
         this.settings = settings;
@@ -34,6 +37,7 @@ final class FightCinematicDirector {
             phaseSequences.clear();
             attackSequences.clear();
             collapseSequences.clear();
+            respawnSequences.clear();
             finalAnchorBlockedUntil.clear();
         }
     }
@@ -118,11 +122,78 @@ final class FightCinematicDirector {
                 || clock(worldName) >= finalAnchorBlockedUntil.getOrDefault(worldName, 0L);
     }
 
+    void advanceClock(World world) {
+        if (!settings.enabled() || world == null) {
+            return;
+        }
+        clocks.merge(world.getName(), settings.tickInterval(), Long::sum);
+    }
+
+    void beginRespawnPhase(
+            World world,
+            DragonBattle.RespawnPhase phase,
+            Location center,
+            List<Location> crystals
+    ) {
+        if (!settings.enabled() || world == null || phase == null || center == null) {
+            return;
+        }
+        if (phase == DragonBattle.RespawnPhase.NONE) {
+            return;
+        }
+        if (phase == DragonBattle.RespawnPhase.END) {
+            respawnSequences.put(
+                    world.getName(),
+                    new RespawnSequence(
+                            phase,
+                            center.clone(),
+                            copyLocations(crystals),
+                            new FightCinematicSequence(1L, 6L, 18L, Math.max(settings.aftermathTicks(), 60L))
+                    )
+            );
+            return;
+        }
+        respawnSequences.put(
+                world.getName(),
+                new RespawnSequence(
+                        phase,
+                        center.clone(),
+                        copyLocations(crystals),
+                        new FightCinematicSequence(180L, 24L, 60L, 120L)
+                )
+        );
+    }
+
+    void tickRespawn(World world, Location center) {
+        if (!settings.enabled() || world == null || center == null) {
+            return;
+        }
+        RespawnSequence sequence = respawnSequences.get(world.getName());
+        if (sequence == null) {
+            return;
+        }
+        sequence.sequence().advance(settings.tickInterval());
+        CinematicFrameBudget budget = new CinematicFrameBudget(settings.maxPointsPerFrame());
+        renderRespawnSequence(world, sequence, budget);
+        if (sequence.phase() == DragonBattle.RespawnPhase.END && sequence.sequence().complete()) {
+            respawnSequences.remove(world.getName());
+        }
+    }
+
+    boolean hasRespawnSequence(String worldName) {
+        return respawnSequences.containsKey(worldName);
+    }
+
+    static boolean activeRespawnPhase(DragonBattle.RespawnPhase phase) {
+        return phase != null
+                && phase != DragonBattle.RespawnPhase.NONE
+                && phase != DragonBattle.RespawnPhase.END;
+    }
+
     void tick(World world, EndFightSession session, EnderDragon dragon, Location center) {
         if (!settings.enabled() || world == null || session == null || dragon == null || center == null) {
             return;
         }
-        clocks.merge(world.getName(), settings.tickInterval(), Long::sum);
         CinematicFrameBudget budget = new CinematicFrameBudget(settings.maxPointsPerFrame());
         renderAmbient(world, session, dragon, center, budget);
         renderPhaseSequence(world, dragon, budget);
@@ -136,6 +207,11 @@ final class FightCinematicDirector {
         phaseSequences.remove(worldName);
         attackSequences.remove(worldName);
         collapseSequences.remove(worldName);
+        respawnSequences.remove(worldName);
+    }
+
+    void clearRespawn(String worldName) {
+        respawnSequences.remove(worldName);
     }
 
     private void renderAmbient(
@@ -389,6 +465,109 @@ final class FightCinematicDirector {
         }
         if (collapse.sequence().complete()) {
             collapseSequences.remove(world.getName());
+        }
+    }
+
+    private void renderRespawnSequence(World world, RespawnSequence respawn, CinematicFrameBudget budget) {
+        long clock = clock(world);
+        double phase = clock / 9.0D;
+        FightCinematicSequence.Stage stage = respawn.sequence().stage();
+        double progress = respawn.sequence().stageProgress();
+        Location center = respawn.center();
+        renderRespawnCrystalBeams(world, respawn, center, budget);
+        switch (respawn.phase()) {
+            case START, PREPARING_TO_SUMMON_PILLARS -> {
+                for (int ring = 0; ring < 4; ring++) {
+                    orbit(world, center.clone().add(0.0D, 1.0D + ring * 0.35D, 0.0D),
+                            6.0D + ring * 4.0D + progress * 8.0D,
+                            phase * (ring % 2 == 0 ? 1.0D : -0.75D),
+                            ring % 2 == 0 ? Particle.REVERSE_PORTAL : Particle.END_ROD,
+                            96,
+                            settings.respawnDensity(),
+                            CinematicFrameBudget.Priority.TELEGRAPH,
+                            budget);
+                }
+                verticalColumn(world, center, 28.0D, phase, Particle.PORTAL, 96,
+                        settings.respawnDensity(), CinematicFrameBudget.Priority.TELEGRAPH, budget);
+                ambientSound(world, center, clock, 24L, Sound.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.3F, 0.45F);
+            }
+            case SUMMONING_PILLARS -> {
+                for (int ring = 1; ring <= 5; ring++) {
+                    groundRing(world, center, ring * (5.0D + progress * 3.0D), phase * 0.4D + ring,
+                            ring % 2 == 0 ? Particle.DRAGON_BREATH : Particle.REVERSE_PORTAL,
+                            96,
+                            settings.respawnDensity(),
+                            CinematicFrameBudget.Priority.IMPACT,
+                            budget);
+                }
+                verticalColumn(world, center, 42.0D, phase * 1.4D, Particle.END_ROD, 120,
+                        settings.respawnDensity(), CinematicFrameBudget.Priority.IMPACT, budget);
+                renderSkyRifts(world, center, phase * 0.8D, budget);
+                ambientSound(world, center, clock, 28L, Sound.BLOCK_BEACON_AMBIENT, 1.6F, 0.42F);
+            }
+            case SUMMONING_DRAGON -> {
+                orbit(world, center.clone().add(0.0D, 20.0D, 0.0D),
+                        24.0D * Math.max(0.15D, 1.0D - progress) + 3.0D,
+                        phase * 2.0D,
+                        Particle.DRAGON_BREATH,
+                        180,
+                        settings.respawnDensity(),
+                        CinematicFrameBudget.Priority.IMPACT,
+                        budget);
+                verticalColumn(world, center, 58.0D, phase * 2.2D, Particle.END_ROD, 160,
+                        settings.respawnDensity(), CinematicFrameBudget.Priority.IMPACT, budget);
+                beam(world, center.clone().add(0.0D, 2.0D, 0.0D), center.clone().add(0.0D, 42.0D, 0.0D),
+                        Particle.DRAGON_BREATH, 120, settings.respawnDensity(),
+                        CinematicFrameBudget.Priority.IMPACT, budget);
+                if (respawn.sequence().fireOnce("summon-roar")) {
+                    world.strikeLightningEffect(center);
+                    playLayer(world, center, Sound.ENTITY_ENDER_DRAGON_GROWL, 4.0F, 0.55F);
+                    playLayer(world, center, Sound.BLOCK_END_PORTAL_SPAWN, 3.2F, 0.5F);
+                }
+                ambientSound(world, center, clock, 18L, Sound.ENTITY_ENDER_DRAGON_AMBIENT, 1.2F, 0.5F);
+            }
+            case END -> {
+                if (stage == FightCinematicSequence.Stage.RELEASE || stage == FightCinematicSequence.Stage.IMPACT) {
+                    for (int ring = 1; ring <= 5; ring++) {
+                        groundRing(world, center, ring * 6.0D + progress * 14.0D, ring,
+                                ring % 2 == 0 ? Particle.END_ROD : Particle.DRAGON_BREATH,
+                                100,
+                                settings.respawnDensity(),
+                                CinematicFrameBudget.Priority.IMPACT,
+                                budget);
+                    }
+                    if (respawn.sequence().fireOnce("complete")) {
+                        world.strikeLightningEffect(center);
+                        playLayer(world, center, Sound.ENTITY_ENDER_DRAGON_GROWL, 4.5F, 0.72F);
+                        playLayer(world, center, Sound.BLOCK_BEACON_ACTIVATE, 3.0F, 0.62F);
+                    }
+                } else {
+                    risingMotes(world, center, clock, Particle.SOUL_FIRE_FLAME, 80, budget);
+                    orbit(world, center.clone().add(0.0D, 2.0D, 0.0D), 16.0D, phase * 0.4D,
+                            Particle.REVERSE_PORTAL, 90, settings.respawnDensity(),
+                            CinematicFrameBudget.Priority.AMBIENT, budget);
+                }
+            }
+            case NONE -> {
+            }
+        }
+    }
+
+    private void renderRespawnCrystalBeams(
+            World world,
+            RespawnSequence respawn,
+            Location center,
+            CinematicFrameBudget budget
+    ) {
+        DragonBattle battle = world.getEnderDragonBattle();
+        List<Location> crystals = respawn.crystals().isEmpty() && battle != null
+                ? battle.getRespawnCrystals().stream().map(EnderCrystal::getLocation).toList()
+                : respawn.crystals();
+        for (Location crystal : crystals) {
+            beam(world, crystal.clone().add(0.0D, 1.0D, 0.0D), center.clone().add(0.0D, 2.0D, 0.0D),
+                    Particle.END_ROD, 44, settings.respawnDensity(),
+                    CinematicFrameBudget.Priority.TELEGRAPH, budget);
+            brokenRing(world, crystal, 1.8D, clock(world) / 6.0D, Particle.REVERSE_PORTAL, 36, budget);
         }
     }
 
@@ -705,5 +884,13 @@ final class FightCinematicDirector {
     }
 
     private record CollapseSequence(Location origin, FightCinematicSequence sequence) {
+    }
+
+    private record RespawnSequence(
+            DragonBattle.RespawnPhase phase,
+            Location center,
+            List<Location> crystals,
+            FightCinematicSequence sequence
+    ) {
     }
 }

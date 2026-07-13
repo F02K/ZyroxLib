@@ -8,6 +8,7 @@ import java.util.Collection;
 record RitualGatheringCircle(double centerX, double centerZ, double radius) {
 
     private static final double MIN_RADIUS = 1.0D;
+    private static final int MIN_DERIVED_RING_NODES = 10;
 
     static RitualGatheringCircle from(
             Collection<PillarRitualNode> nodes,
@@ -15,7 +16,7 @@ record RitualGatheringCircle(double centerX, double centerZ, double radius) {
             double fallbackCenterZ,
             double fallbackRadius
     ) {
-        if (nodes == null || nodes.size() < 3) {
+        if (nodes == null || nodes.size() < MIN_DERIVED_RING_NODES) {
             return new RitualGatheringCircle(
                     fallbackCenterX,
                     fallbackCenterZ,

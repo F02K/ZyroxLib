@@ -19,6 +19,10 @@ dependencies {
 
     implementation 'net.dv8tion:JDA:6.4.2'
     implementation 'org.xerial:sqlite-jdbc:3.53.2.0'
+
+    testImplementation 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation 'org.mockito:mockito-core:5.12.0'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -26,3 +30,6 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 21
 }
 
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}

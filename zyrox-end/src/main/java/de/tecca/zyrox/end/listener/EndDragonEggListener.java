@@ -1,5 +1,6 @@
 package de.tecca.zyrox.end.listener;
 
+import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
 import de.tecca.zyrox.end.service.DragonEggClaim;
 import de.tecca.zyrox.end.service.DragonEggValidation;
 import de.tecca.zyrox.end.service.EndDragonEggService;
@@ -73,11 +74,13 @@ public final class EndDragonEggListener implements Listener {
             InventoryType.MERCHANT,
             InventoryType.CRAFTER
     );
+    private static final long RECOVERY_WINDOW_TICKS = 3L;
+    private static final double RECOVERY_RADIUS_SQUARED = 9.0D;
 
     private final JavaPlugin plugin;
     private final EndDragonEggService dragonEggService;
     private final NamespacedKey fallingEggKey;
-    private final Set<BlockKey> pendingDrops = new HashSet<>();
+    private final RecoveryRegistry pendingRecoveries = new RecoveryRegistry();
     private long lastConflictWarningAt;
 
     public EndDragonEggListener(JavaPlugin plugin, EndDragonEggService dragonEggService) {
@@ -116,7 +119,7 @@ public final class EndDragonEggListener implements Listener {
             dragonEggService.trackItem(null);
             return;
         }
-        if (player.getWorld().getEnvironment() != World.Environment.THE_END) {
+        if (!canAutoClaimUntaggedEgg(player.getWorld().getEnvironment())) {
             return;
         }
 
@@ -204,6 +207,7 @@ public final class EndDragonEggListener implements Listener {
         }
         falling.getPersistentDataContainer().set(fallingEggKey, PersistentDataType.STRING, eggId.toString());
         dragonEggService.trackFalling(source, falling.getUniqueId());
+        registerRecovery(source, RecoveryReason.FALLING_SOURCE, falling.getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -213,6 +217,8 @@ public final class EndDragonEggListener implements Listener {
         }
         if (event.getTo() == Material.DRAGON_EGG) {
             dragonEggService.trackPlaced(event.getBlock().getLocation());
+        } else {
+            registerRecovery(event.getBlock().getLocation(), RecoveryReason.FALLING_BREAK, falling.getUniqueId());
         }
     }
 
@@ -229,6 +235,14 @@ public final class EndDragonEggListener implements Listener {
         }
         event.getItemDrop().setItemStack(stack);
         dragonEggService.trackItem(event.getItemDrop().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onFallingBlockRemove(EntityRemoveFromWorldEvent event) {
+        if (!(event.getEntity() instanceof FallingBlock falling) || !trackedFalling(falling)) {
+            return;
+        }
+        registerRecovery(falling.getLocation(), RecoveryReason.FALLING_BREAK, falling.getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -248,7 +262,7 @@ public final class EndDragonEggListener implements Listener {
             }
         }
         if (!restored) {
-            dragonEggService.trackLost();
+            registerRecovery(event.getBlockState().getLocation(), RecoveryReason.BLOCK_DROP, null);
         }
     }
 
@@ -261,7 +275,7 @@ public final class EndDragonEggListener implements Listener {
         if (restored) {
             dragonEggService.trackItem(null);
         } else {
-            dragonEggService.trackLost();
+            registerRecovery(event.getBlock().getLocation(), RecoveryReason.BLOCK_BREAK_BY_BLOCK, null);
         }
     }
 
@@ -301,9 +315,9 @@ public final class EndDragonEggListener implements Listener {
             dragonEggService.trackItem(item.getUniqueId());
             return;
         }
-        BlockKey pending = pendingNear(item.getLocation());
-        if (pending != null && dragonEggService.restoreCanonicalEgg(stack)) {
-            pendingDrops.remove(pending);
+        PendingRecovery recovery = pendingRecoveries.findMatching(item.getLocation(), Bukkit.getCurrentTick()).orElse(null);
+        if (recovery != null && dragonEggService.restoreCanonicalEgg(stack)) {
+            pendingRecoveries.remove(recovery);
             item.setItemStack(stack);
             dragonEggService.trackItem(item.getUniqueId());
         }
@@ -326,7 +340,9 @@ public final class EndDragonEggListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemDamage(EntityDamageEvent event) {
-        if (!(event.getEntity() instanceof Item item) || !validCanonical(item.getItemStack())) {
+        if (!(event.getEntity() instanceof Item item)
+                || !validCanonical(item.getItemStack())
+                || !activeDestructionCause(event.getCause())) {
             return;
         }
         Bukkit.getScheduler().runTask(plugin, () -> {
@@ -446,10 +462,35 @@ public final class EndDragonEggListener implements Listener {
                     dragonEggService.trackPlaced(backward);
                 } else if (source.getBlock().getType() != Material.DRAGON_EGG
                         && dragonEggService.isTrackedBlock(source)) {
-                    dragonEggService.trackLost();
+                    registerRecovery(source, RecoveryReason.PISTON, null);
                 }
             });
             return;
+        }
+    }
+
+    private void registerRecovery(Location location, RecoveryReason reason, UUID fallingUniqueId) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+        PendingRecovery recovery = pendingRecoveries.add(
+                RecoveryKey.of(location),
+                reason,
+                fallingUniqueId,
+                Bukkit.getCurrentTick(),
+                RECOVERY_WINDOW_TICKS
+        );
+        Bukkit.getScheduler().runTaskLater(plugin, () -> expireRecovery(recovery), RECOVERY_WINDOW_TICKS);
+    }
+
+    private void expireRecovery(PendingRecovery recovery) {
+        if (!pendingRecoveries.remove(recovery) || !recovery.expiresToLost()) {
+            return;
+        }
+        if (recovery.optionalFallingUniqueId()
+                .map(dragonEggService::isTrackedFalling)
+                .orElseGet(() -> dragonEggService.isTrackedBlock(recovery.key().location()))) {
+            dragonEggService.trackLost();
         }
     }
 
@@ -458,30 +499,9 @@ public final class EndDragonEggListener implements Listener {
             if (!dragonEggService.isTrackedBlock(block.getLocation())) {
                 continue;
             }
-            BlockKey key = BlockKey.of(block.getLocation());
-            pendingDrops.add(key);
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (pendingDrops.remove(key) && dragonEggService.isTrackedBlock(key.location())) {
-                    dragonEggService.trackLost();
-                }
-            }, 2L);
+            registerRecovery(block.getLocation(), RecoveryReason.EXPLOSION, null);
             return;
         }
-    }
-
-    private BlockKey pendingNear(Location location) {
-        for (BlockKey key : pendingDrops) {
-            if (!key.worldUniqueId().equals(location.getWorld().getUID())) {
-                continue;
-            }
-            double dx = key.x() + 0.5D - location.getX();
-            double dy = key.y() + 0.5D - location.getY();
-            double dz = key.z() + 0.5D - location.getZ();
-            if (dx * dx + dy * dy + dz * dz <= 9.0D) {
-                return key;
-            }
-        }
-        return null;
     }
 
     private boolean trackedFalling(FallingBlock falling) {
@@ -547,15 +567,117 @@ public final class EndDragonEggListener implements Listener {
         return dragonEggService.taggedFirstDragonEgg(player.getInventory().getItem(button));
     }
 
-    private record BlockKey(UUID worldUniqueId, String worldName, int x, int y, int z) {
-        static BlockKey of(Location location) {
-            return new BlockKey(
+    static boolean canAutoClaimUntaggedEgg(World.Environment environment) {
+        return environment == World.Environment.THE_END;
+    }
+
+    static boolean activeDestructionCause(EntityDamageEvent.DamageCause cause) {
+        return cause == EntityDamageEvent.DamageCause.LAVA
+                || cause == EntityDamageEvent.DamageCause.FIRE
+                || cause == EntityDamageEvent.DamageCause.FIRE_TICK
+                || cause == EntityDamageEvent.DamageCause.HOT_FLOOR
+                || cause == EntityDamageEvent.DamageCause.CONTACT
+                || cause == EntityDamageEvent.DamageCause.VOID;
+    }
+
+    enum RecoveryReason {
+        FALLING_SOURCE(false),
+        FALLING_BREAK(true),
+        EXPLOSION(true),
+        BLOCK_DROP(true),
+        BLOCK_BREAK_BY_BLOCK(true),
+        PISTON(true);
+
+        private final boolean expiresToLost;
+
+        RecoveryReason(boolean expiresToLost) {
+            this.expiresToLost = expiresToLost;
+        }
+    }
+
+    static final class RecoveryRegistry {
+
+        private final Set<PendingRecovery> recoveries = new HashSet<>();
+        private long nextRecoveryId;
+
+        PendingRecovery add(RecoveryKey key, RecoveryReason reason, UUID fallingUniqueId, long currentTick, long ttlTicks) {
+            PendingRecovery recovery = new PendingRecovery(
+                    ++nextRecoveryId,
+                    key,
+                    reason,
+                    fallingUniqueId,
+                    currentTick + ttlTicks
+            );
+            recoveries.add(recovery);
+            return recovery;
+        }
+
+        boolean remove(PendingRecovery recovery) {
+            return recoveries.remove(recovery);
+        }
+
+        Optional<PendingRecovery> findMatching(Location location, long currentTick) {
+            if (location == null || location.getWorld() == null) {
+                return Optional.empty();
+            }
+            UUID worldId = location.getWorld().getUID();
+            return findMatching(worldId, location.getX(), location.getY(), location.getZ(), currentTick);
+        }
+
+        Optional<PendingRecovery> findMatching(UUID worldId, double x, double y, double z, long currentTick) {
+            return recoveries.stream()
+                    .filter(recovery -> !recovery.expired(currentTick))
+                    .filter(recovery -> recovery.key().matches(worldId, x, y, z))
+                    .min((left, right) -> Double.compare(
+                            left.key().distanceSquared(x, y, z),
+                            right.key().distanceSquared(x, y, z)
+                    ));
+        }
+    }
+
+    record PendingRecovery(
+            long id,
+            RecoveryKey key,
+            RecoveryReason reason,
+            UUID fallingUniqueId,
+            long expiresAtTick
+    ) {
+        Optional<UUID> optionalFallingUniqueId() {
+            return Optional.ofNullable(fallingUniqueId);
+        }
+
+        boolean expired(long currentTick) {
+            return currentTick > expiresAtTick;
+        }
+
+        boolean expiresToLost() {
+            return reason.expiresToLost;
+        }
+    }
+
+    record RecoveryKey(UUID worldUniqueId, String worldName, int x, int y, int z) {
+        static RecoveryKey of(Location location) {
+            return new RecoveryKey(
                     location.getWorld().getUID(),
                     location.getWorld().getName(),
                     location.getBlockX(),
                     location.getBlockY(),
                     location.getBlockZ()
             );
+        }
+
+        boolean matches(UUID worldId, double itemX, double itemY, double itemZ) {
+            if (!worldUniqueId.equals(worldId)) {
+                return false;
+            }
+            return distanceSquared(itemX, itemY, itemZ) <= RECOVERY_RADIUS_SQUARED;
+        }
+
+        double distanceSquared(double itemX, double itemY, double itemZ) {
+            double dx = x + 0.5D - itemX;
+            double dy = y + 0.5D - itemY;
+            double dz = z + 0.5D - itemZ;
+            return dx * dx + dy * dy + dz * dz;
         }
 
         Location location() {

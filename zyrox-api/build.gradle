@@ -16,9 +16,16 @@ java {
 dependencies {
     compileOnly 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
     compileOnly 'net.luckperms:api:5.4'
+
+    testImplementation 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
+}
+
+test {
+    useJUnitPlatform()
 }

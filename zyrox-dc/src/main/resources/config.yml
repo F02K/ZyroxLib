@@ -40,3 +40,10 @@ ban-sync:
   minecraft-ban-kick-message: |-
     &cA linked Minecraft account is banned.
     &7Please contact support if you think this is a mistake.
+
+chat-sync:
+  enabled: false
+  channel-id: "0"
+  minecraft-to-discord-format: "**{player}**: {message}"
+  discord-to-minecraft-format: "&9[Discord]&r {display-name}: &f{message}"
+  max-message-length: 256

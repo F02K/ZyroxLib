@@ -3,6 +3,7 @@ package de.tecca.zyrox.deepdark.plugin;
 import de.tecca.zyrox.api.ZyroxApi;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
+import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.module.ZyroxModule;
 import de.tecca.zyrox.api.setting.ZyroxSetting;
 import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
@@ -38,7 +39,7 @@ public final class ZyroxDeepDarkPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        ConfigUpdater.update(this, "config.yml");
         ensurePortalResource();
 
         zyroxApi = loadZyroxApi();
@@ -78,6 +79,7 @@ public final class ZyroxDeepDarkPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ConfigUpdater.update(this, "config.yml");
         reloadConfig();
         if (portalService != null) {
             portalService.load();

@@ -145,6 +145,54 @@ final class EnchantBookServiceTest {
         assertEquals(5, service.allowedAnvilLevel(5, 6, false));
     }
 
+    @Test
+    void matchingZyroxLevelsIncreaseByOne() {
+        EnchantBookService service = service();
+
+        assertEquals(7, service.combinedAnvilLevel(6, 6, 10));
+    }
+
+    @Test
+    void differentZyroxLevelsUseHighestLevel() {
+        EnchantBookService service = service();
+
+        assertEquals(8, service.combinedAnvilLevel(6, 8, 10));
+        assertEquals(8, service.combinedAnvilLevel(8, 6, 10));
+    }
+
+    @Test
+    void zyroxCombinationIsCappedAtConfiguredMaxLevel() {
+        EnchantBookService service = service();
+
+        assertEquals(10, service.combinedAnvilLevel(10, 10, 10));
+        assertEquals(10, service.combinedAnvilLevel(9, 10, 10));
+    }
+
+    @Test
+    void trustedZyroxSourcesCanCarryOverlevelsUpToConfiguredMax() {
+        EnchantBookService service = service();
+
+        assertEquals(8, service.trustedAnvilLevel(5, 8, true, 10));
+        assertEquals(10, service.trustedAnvilLevel(5, 12, true, 10));
+    }
+
+    @Test
+    void unmarkedOverlevelsAreStillLimitedToVanillaMax() {
+        EnchantBookService service = service();
+
+        assertEquals(5, service.trustedAnvilLevel(5, 8, false, 10));
+        assertEquals(0, service.trustedAnvilLevel(5, 0, false, 10));
+    }
+
+    @Test
+    void unmarkedOverleveledBooksAreNotAppliedThroughCentralAnvilPath() {
+        EnchantBookService service = service();
+        ItemStack target = item(Material.DIAMOND_SWORD);
+        ItemStack book = zyroxBook(false);
+
+        assertNull(service.combineAnvilResult(target, book, null, 10));
+    }
+
     private EnchantBookService service() {
         return new EnchantBookService(BOOK_MARKER, ITEM_MARKER, key -> null, List::of);
     }
@@ -166,4 +214,5 @@ final class EnchantBookServiceTest {
         when(container.has(BOOK_MARKER, PersistentDataType.BYTE)).thenReturn(marked);
         return book;
     }
+
 }

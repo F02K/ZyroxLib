@@ -19,6 +19,8 @@ public record ShopRecord(
         long priceDiamonds,
         long stockAmount,
         long revenueDiamonds,
+        String emptyStockExpiresAt,
+        String lastEmptyStockWarningAt,
         String createdAt,
         String updatedAt
 ) {

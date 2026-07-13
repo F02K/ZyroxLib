@@ -1,6 +1,8 @@
 package de.tecca.zyrox.dc.discord;
 
 import de.tecca.zyrox.dc.chat.ChatSyncFormatter;
+import de.tecca.zyrox.dc.market.DiscordMarketplaceHandler;
+import de.tecca.zyrox.dc.market.DiscordMarketplaceShop;
 import de.tecca.zyrox.dc.service.VerificationService;
 import de.tecca.zyrox.dc.storage.DiscordBan;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -12,10 +14,14 @@ import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.guild.GuildBanEvent;
 import net.dv8tion.jda.api.events.guild.GuildUnbanEvent;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
+import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.interactions.commands.build.OptionData;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import org.bukkit.Bukkit;
@@ -40,6 +46,7 @@ public final class DiscordBotService extends ListenerAdapter {
     private final VerificationService verificationService;
     private JDA jda;
     private String guildId;
+    private DiscordMarketplaceHandler marketplaceHandler;
 
     public DiscordBotService(JavaPlugin plugin, VerificationService verificationService) {
         this.plugin = plugin;
@@ -62,6 +69,7 @@ public final class DiscordBotService extends ListenerAdapter {
                 .build();
         jda.awaitReady();
         syncExistingBansOnStart();
+        upsertMarketCommand();
         plugin.getLogger().info("ZyroxDC connected to Discord.");
     }
 
@@ -74,6 +82,11 @@ public final class DiscordBotService extends ListenerAdapter {
 
     public boolean isRunning() {
         return jda != null;
+    }
+
+    public void setMarketplaceHandler(DiscordMarketplaceHandler marketplaceHandler) {
+        this.marketplaceHandler = marketplaceHandler;
+        upsertMarketCommand();
     }
 
     public void sendVerificationMessage(String channelId, String title, String description, String buttonLabel) {
@@ -117,6 +130,43 @@ public final class DiscordBotService extends ListenerAdapter {
         if (!text.isBlank()) {
             channel.sendMessage(text).queue();
         }
+    }
+
+    public void sendMarketplaceShopPost(String eventType, DiscordMarketplaceShop shop) {
+        if (!isMarketplaceEnabled() || shop == null) {
+            return;
+        }
+
+        String channelId = plugin.getConfig().getString("marketplace.channel-id", "");
+        if (channelId == null || channelId.isBlank() || "0".equals(channelId) || jda == null) {
+            return;
+        }
+
+        TextChannel channel = jda.getTextChannelById(channelId);
+        if (channel == null) {
+            return;
+        }
+
+        String title = "CREATED".equals(eventType)
+                ? "New shop #" + shop.id()
+                : "Shop updated #" + shop.id();
+        channel.sendMessageEmbeds(marketplaceEmbed(title, shop, new Color(72, 187, 120)).build()).queue();
+    }
+
+    public void sendMarketplaceRevenueReminder(String discordId, DiscordMarketplaceShop shop) {
+        if (!isMarketplaceEnabled() || discordId == null || discordId.isBlank() || shop == null || jda == null) {
+            return;
+        }
+
+        jda.retrieveUserById(discordId).queue(user -> user.openPrivateChannel()
+                .flatMap(channel -> channel.sendMessageEmbeds(marketplaceEmbed(
+                        "Shop revenue waiting #" + shop.id(),
+                        shop,
+                        new Color(246, 173, 85)
+                ).setDescription("Your shop has " + shop.revenueDiamonds() + " diamond(s) waiting to be collected.").build()))
+                .queue(null, failure -> plugin.getLogger().warning("Could not DM marketplace reminder to Discord user "
+                        + discordId + ": " + failure.getMessage())), failure -> plugin.getLogger().warning(
+                "Could not resolve Discord user for marketplace reminder " + discordId + ": " + failure.getMessage()));
     }
 
     public List<DiscordMemberSnapshot> humanMembers() {
@@ -211,6 +261,27 @@ public final class DiscordBotService extends ListenerAdapter {
     }
 
     @Override
+    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+        if (!"market".equals(event.getName())) {
+            return;
+        }
+        if (!isMarketplaceEnabled() || !plugin.getConfig().getBoolean("marketplace.market-command-enabled", true) || marketplaceHandler == null) {
+            event.reply("Marketplace is currently unavailable.").setEphemeral(true).queue();
+            return;
+        }
+
+        String item = event.getOption("item") == null ? "" : event.getOption("item").getAsString();
+        String owner = event.getOption("owner") == null ? "" : event.getOption("owner").getAsString();
+        boolean inStockOnly = event.getOption("in_stock") == null || event.getOption("in_stock").getAsBoolean();
+        try {
+            List<DiscordMarketplaceShop> shops = marketplaceHandler.search(item, owner, inStockOnly);
+            event.reply(formatMarketResults(shops)).setEphemeral(true).queue();
+        } catch (Exception exception) {
+            event.reply("Could not search marketplace: " + exception.getMessage()).setEphemeral(true).queue();
+        }
+    }
+
+    @Override
     public void onMessageReceived(MessageReceivedEvent event) {
         if (!isChatSyncEnabled() || !event.isFromGuild() || !isConfiguredGuild(event.getGuild())) {
             return;
@@ -284,12 +355,32 @@ public final class DiscordBotService extends ListenerAdapter {
         });
     }
 
+    private void upsertMarketCommand() {
+        if (jda == null || !isMarketplaceEnabled() || !plugin.getConfig().getBoolean("marketplace.market-command-enabled", true)) {
+            return;
+        }
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            return;
+        }
+        guild.upsertCommand(Commands.slash("market", "Search Zyrox player shops.")
+                .addOptions(
+                        new OptionData(OptionType.STRING, "item", "Filter by item name, material, or enchantment.", false),
+                        new OptionData(OptionType.STRING, "owner", "Filter by shop owner name.", false),
+                        new OptionData(OptionType.BOOLEAN, "in_stock", "Only show shops with stock. Defaults to true.", false)
+                )).queue();
+    }
+
     private boolean isBanSyncEnabled() {
         return plugin.getConfig().getBoolean("ban-sync.enabled", true);
     }
 
     private boolean isChatSyncEnabled() {
         return plugin.getConfig().getBoolean("chat-sync.enabled", false);
+    }
+
+    private boolean isMarketplaceEnabled() {
+        return plugin.getConfig().getBoolean("marketplace.enabled", false);
     }
 
     private boolean isConfiguredGuild(Guild guild) {
@@ -304,5 +395,45 @@ public final class DiscordBotService extends ListenerAdapter {
     @SuppressWarnings("deprecation")
     private String formatMinecraftMessage(String message) {
         return ChatColor.translateAlternateColorCodes('&', message == null ? "" : message);
+    }
+
+    private EmbedBuilder marketplaceEmbed(String title, DiscordMarketplaceShop shop, Color color) {
+        EmbedBuilder embed = new EmbedBuilder()
+                .setTitle(title)
+                .setColor(color)
+                .setTimestamp(Instant.now())
+                .addField("Item", shop.bundleAmount() + "x " + shop.itemName(), true)
+                .addField("Price", shop.priceDiamonds() + " diamond(s)", true)
+                .addField("Stock", shop.stockAmount() + " item(s)", true)
+                .addField("Owner", shop.ownerName(), true)
+                .addField("Location", shop.worldName() + " " + shop.x() + " " + shop.y() + " " + shop.z(), true);
+        if (shop.enchantments() != null && !shop.enchantments().isBlank()) {
+            embed.addField("Enchantments", shop.enchantments(), false);
+        }
+        return embed;
+    }
+
+    private String formatMarketResults(List<DiscordMarketplaceShop> shops) {
+        if (shops.isEmpty()) {
+            return "No matching shops found.";
+        }
+
+        StringBuilder builder = new StringBuilder("Marketplace results:\n");
+        int shown = Math.min(10, shops.size());
+        for (int index = 0; index < shown; index++) {
+            DiscordMarketplaceShop shop = shops.get(index);
+            builder.append("#").append(shop.id())
+                    .append(" | ").append(shop.bundleAmount()).append("x ").append(shop.itemName())
+                    .append(" | ").append(shop.priceDiamonds()).append(" diamond(s)")
+                    .append(" | stock ").append(shop.stockAmount())
+                    .append(" | ").append(shop.ownerName())
+                    .append(" | ").append(shop.worldName()).append(" ").append(shop.x()).append(" ").append(shop.y()).append(" ").append(shop.z())
+                    .append("\n");
+        }
+        if (shops.size() > shown) {
+            builder.append("...and ").append(shops.size() - shown).append(" more.");
+        }
+        String response = builder.toString();
+        return response.length() <= 1900 ? response : response.substring(0, 1897) + "...";
     }
 }

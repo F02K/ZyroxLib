@@ -2,12 +2,15 @@ package de.tecca.zyrox.shop.service;
 
 import de.tecca.zyrox.economy.api.ZyroxDiamondPaymentService;
 import de.tecca.zyrox.shop.hologram.ShopHologramService;
+import de.tecca.zyrox.shop.api.ZyroxMarketShopEventType;
+import de.tecca.zyrox.shop.market.ShopMarketService;
 import de.tecca.zyrox.shop.storage.ShopRecord;
 import de.tecca.zyrox.shop.storage.ShopStorage;
 import de.tecca.zyrox.shop.text.ShopText;
 import de.tecca.zyrox.shop.util.ItemStacks;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.block.Container;
 import org.bukkit.entity.Player;
@@ -16,6 +19,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +35,8 @@ public final class ShopService {
     private final ZyroxDiamondPaymentService payments;
     private final ShopHologramService holograms;
     private final ShopText text;
+    private final ShopMarketService market;
+    private final Clock clock;
     private final Map<Long, Object> shopLocks = new ConcurrentHashMap<>();
 
     public ShopService(
@@ -38,11 +46,47 @@ public final class ShopService {
             ShopHologramService holograms,
             ShopText text
     ) {
+        this(plugin, storage, payments, holograms, text, null, Clock.systemUTC());
+    }
+
+    public ShopService(
+            JavaPlugin plugin,
+            ShopStorage storage,
+            ZyroxDiamondPaymentService payments,
+            ShopHologramService holograms,
+            ShopText text,
+            ShopMarketService market
+    ) {
+        this(plugin, storage, payments, holograms, text, market, Clock.systemUTC());
+    }
+
+    public ShopService(
+            JavaPlugin plugin,
+            ShopStorage storage,
+            ZyroxDiamondPaymentService payments,
+            ShopHologramService holograms,
+            ShopText text,
+            Clock clock
+    ) {
+        this(plugin, storage, payments, holograms, text, null, clock);
+    }
+
+    public ShopService(
+            JavaPlugin plugin,
+            ShopStorage storage,
+            ZyroxDiamondPaymentService payments,
+            ShopHologramService holograms,
+            ShopText text,
+            ShopMarketService market,
+            Clock clock
+    ) {
         this.plugin = plugin;
         this.storage = storage;
         this.payments = payments;
         this.holograms = holograms;
         this.text = text;
+        this.market = market;
+        this.clock = clock;
     }
 
     public Optional<ShopRecord> findShop(Location location) {
@@ -73,6 +117,7 @@ public final class ShopService {
         try {
             ShopRecord shop = storage.createShop(block.getLocation(), owner, ItemStacks.template(handItem), bundleAmount, price);
             holograms.upsert(shop);
+            publishMarketEvent(ZyroxMarketShopEventType.CREATED, shop);
             return ShopActionResult.success(message("create-success", shop), shop);
         } catch (SQLException exception) {
             plugin.getLogger().warning("Could not create shop: " + exception.getMessage());
@@ -92,6 +137,7 @@ public final class ShopService {
             try {
                 ShopRecord updated = storage.updateTemplate(current.id(), ItemStacks.template(item));
                 holograms.upsert(updated);
+                publishMarketEvent(ZyroxMarketShopEventType.UPDATED, updated);
                 return ShopActionResult.success(message("update-template-success", updated), updated);
             } catch (SQLException exception) {
                 plugin.getLogger().warning("Could not update shop item: " + exception.getMessage());
@@ -106,6 +152,7 @@ public final class ShopService {
             try {
                 ShopRecord updated = storage.updateBundle(current.id(), Math.max(1, bundleAmount), Math.max(1, priceDiamonds));
                 holograms.upsert(updated);
+                publishMarketEvent(ZyroxMarketShopEventType.UPDATED, updated);
                 return ShopActionResult.success(message("update-offer-success", updated), updated);
             } catch (SQLException exception) {
                 plugin.getLogger().warning("Could not update shop offer: " + exception.getMessage());
@@ -128,6 +175,9 @@ public final class ShopService {
             try {
                 ShopRecord updated = storage.addStock(current.id(), removed, owner);
                 holograms.upsert(updated);
+                if (current.stockAmount() <= 0 && updated.stockAmount() > 0) {
+                    publishMarketEvent(ZyroxMarketShopEventType.RESTOCKED, updated);
+                }
                 return ShopActionResult.success(message("stock-deposit-success", updated, Map.of("amount", Long.toString(removed))), updated);
             } catch (SQLException exception) {
                 ItemStacks.give(owner.getInventory(), current.itemTemplate(), removed);
@@ -270,6 +320,55 @@ public final class ShopService {
         }
     }
 
+    public void performEmptyStockMaintenance() {
+        try {
+            int initialized = storage.initializeMissingEmptyStockDeadlines();
+            if (initialized > 0) {
+                plugin.getLogger().info("Initialized auto-close deadlines for " + initialized + " empty shop(s).");
+            }
+            for (ShopRecord shop : storage.expiredEmptyStockShops()) {
+                synchronized (lockFor(shop.id())) {
+                    ShopRecord current = currentShop(shop).orElse(null);
+                    if (current == null || current.stockAmount() > 0 || current.emptyStockExpiresAt() == null) {
+                        continue;
+                    }
+                    boolean deleted = storage.deleteShop(current.id(), null, true);
+                    if (deleted) {
+                        holograms.remove(current.id());
+                        plugin.getLogger().info("Auto-closed empty shop #" + current.id()
+                                + " owned by " + current.ownerName() + ".");
+                    }
+                }
+            }
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not run empty shop maintenance: " + exception.getMessage());
+        }
+    }
+
+    public void warnOnlineOwnersAboutEmptyShops() {
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            warnOwnerAboutEmptyShops(player);
+        }
+    }
+
+    public void warnOwnerAboutEmptyShops(Player player) {
+        try {
+            for (ShopRecord shop : storage.allShops()) {
+                if (!shop.isOwner(player.getUniqueId()) || shop.stockAmount() > 0 || shop.emptyStockExpiresAt() == null) {
+                    continue;
+                }
+                if (!shouldWarn(shop)) {
+                    continue;
+                }
+                player.sendMessage(message("empty-stock-warning", shop));
+                playWarningSound(player);
+                storage.markEmptyStockWarningSent(shop.id());
+            }
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not send empty shop warnings: " + exception.getMessage());
+        }
+    }
+
     public boolean isChest(Block block) {
         return block != null && (block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST);
     }
@@ -299,5 +398,34 @@ public final class ShopService {
         Map<String, String> placeholders = new HashMap<>(text.placeholders(shop));
         placeholders.putAll(extra);
         return text.message(path, placeholders);
+    }
+
+    private boolean shouldWarn(ShopRecord shop) {
+        if (shop.lastEmptyStockWarningAt() == null || shop.lastEmptyStockWarningAt().isBlank()) {
+            return true;
+        }
+        try {
+            Instant lastWarning = Instant.parse(shop.lastEmptyStockWarningAt());
+            Duration interval = Duration.ofHours(Math.max(1, plugin.getConfig().getLong("shop.empty-stock-warning-interval-hours", 24)));
+            return !Instant.now(clock).minus(interval).isBefore(lastWarning);
+        } catch (RuntimeException exception) {
+            return true;
+        }
+    }
+
+    private void playWarningSound(Player player) {
+        String configured = plugin.getConfig().getString("shop.empty-stock-warning-sound", "BLOCK_NOTE_BLOCK_PLING");
+        try {
+            Sound sound = Sound.valueOf(configured == null ? "BLOCK_NOTE_BLOCK_PLING" : configured);
+            player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
+        } catch (IllegalArgumentException exception) {
+            plugin.getLogger().warning("Invalid empty-stock warning sound: " + configured);
+        }
+    }
+
+    private void publishMarketEvent(ZyroxMarketShopEventType type, ShopRecord shop) {
+        if (market != null) {
+            market.publish(type, shop);
+        }
     }
 }

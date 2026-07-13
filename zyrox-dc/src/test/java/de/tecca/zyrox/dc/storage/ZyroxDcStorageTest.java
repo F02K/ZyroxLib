@@ -12,6 +12,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -111,6 +112,26 @@ final class ZyroxDcStorageTest {
         }
         try (ZyroxDcStorage ignored = openStorage(database)) {
             assertEquals(1, migrationCount(database));
+        }
+    }
+
+    @Test
+    void marketplaceRevenueReminderStatePersists() throws Exception {
+        Path database = tempDir.resolve("marketplace.db");
+        UUID ownerUuid = UUID.fromString("00000000-0000-0000-0000-000000000042");
+        Instant first = Instant.parse("2026-07-13T12:00:00Z");
+        Instant second = Instant.parse("2026-07-14T12:00:00Z");
+
+        try (ZyroxDcStorage storage = openStorage(database)) {
+            assertTrue(storage.findMarketplaceRevenueReminder(7L, ownerUuid).isEmpty());
+            storage.markMarketplaceRevenueReminderSent(7L, ownerUuid, first);
+            assertEquals(Optional.of(first), storage.findMarketplaceRevenueReminder(7L, ownerUuid));
+        }
+
+        try (ZyroxDcStorage storage = openStorage(database)) {
+            assertEquals(Optional.of(first), storage.findMarketplaceRevenueReminder(7L, ownerUuid));
+            storage.markMarketplaceRevenueReminderSent(7L, ownerUuid, second);
+            assertEquals(Optional.of(second), storage.findMarketplaceRevenueReminder(7L, ownerUuid));
         }
     }
 

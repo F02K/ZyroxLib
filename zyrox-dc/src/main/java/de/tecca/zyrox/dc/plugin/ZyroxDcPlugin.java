@@ -15,6 +15,7 @@ import de.tecca.zyrox.dc.command.ZyroxDcCommand;
 import de.tecca.zyrox.dc.discord.DiscordBotService;
 import de.tecca.zyrox.dc.listener.ZyroxDcChatListener;
 import de.tecca.zyrox.dc.listener.ZyroxDcLoginListener;
+import de.tecca.zyrox.dc.market.ZyroxDcMarketplaceIntegration;
 import de.tecca.zyrox.dc.minecraft.MinecraftAccountService;
 import de.tecca.zyrox.dc.service.VerificationService;
 import de.tecca.zyrox.dc.storage.VerificationEventType;
@@ -38,6 +39,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     private MinecraftAccountService minecraftAccounts;
     private VerificationService verificationService;
     private DiscordBotService discordBot;
+    private ZyroxDcMarketplaceIntegration marketplaceIntegration;
     private ZyroxDcDashboardRenderer dashboardRenderer;
     private BukkitTask nativeBanReconciliationTask;
 
@@ -65,11 +67,15 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         verificationService = new VerificationService(this, storage, minecraftAccounts);
         discordBot = new DiscordBotService(this, verificationService);
         verificationService.setDiscordBot(discordBot);
+        marketplaceIntegration = createMarketplaceIntegration();
         dashboardRenderer = new ZyroxDcDashboardRenderer(storage, minecraftAccounts, discordBot);
 
         registerZyroxApiIntegrations();
         registerCommand();
         registerListeners();
+        if (marketplaceIntegration != null) {
+            marketplaceIntegration.start();
+        }
         startNativeBanReconciliation();
         startDiscordBot();
 
@@ -78,6 +84,10 @@ public final class ZyroxDcPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (marketplaceIntegration != null) {
+            marketplaceIntegration.stop();
+        }
+
         if (discordBot != null) {
             discordBot.stop();
         }
@@ -109,6 +119,12 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         reloadConfig();
         if (discordBot != null) {
             startDiscordBot();
+        }
+        if (marketplaceIntegration == null) {
+            marketplaceIntegration = createMarketplaceIntegration();
+        }
+        if (marketplaceIntegration != null) {
+            marketplaceIntegration.reload();
         }
     }
 
@@ -228,8 +244,9 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("join-gate", "Join Gate", 40));
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("ban-sync", "Ban Sync", 50));
         zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("chat-sync", "Chat Sync", 60));
-        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("storage", "Storage", 70));
-        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("permissions", "Permissions", 80));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("marketplace", "Marketplace", 70));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("storage", "Storage", 80));
+        zyroxApi.settings().registerCategory("zyrox-dc", new ZyroxSettingCategory("permissions", "Permissions", 90));
 
         registerStringSetting("discord-token", "Discord Bot Token", "Bot token used to connect ZyroxDC to Discord.", "discord", ZyroxSettingType.SECRET, "discord.token", true, adminPermission, 10, false, true);
         registerStringSetting("discord-guild-id", "Guild ID", "Discord guild id where verification is managed.", "discord", ZyroxSettingType.STRING, "discord.guild-id", true, adminPermission, 20, false, true);
@@ -259,6 +276,13 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         registerStringSetting("chat-sync-minecraft-format", "Minecraft To Discord Format", "Format used when Minecraft chat is sent to Discord.", "chat-sync", ZyroxSettingType.STRING, "chat-sync.minecraft-to-discord-format", true, adminPermission, 30, false, false);
         registerStringSetting("chat-sync-discord-format", "Discord To Minecraft Format", "Format used when Discord chat is sent to Minecraft.", "chat-sync", ZyroxSettingType.STRING, "chat-sync.discord-to-minecraft-format", true, adminPermission, 40, false, false);
         registerIntegerSetting("chat-sync-max-length", "Max Message Length", "Maximum formatted synced message length.", "chat-sync", "chat-sync.max-message-length", adminPermission, 50);
+
+        registerBooleanSetting("marketplace-enabled", "Marketplace Enabled", "Enables ZyroxShop marketplace Discord integration.", "marketplace", "marketplace.enabled", false, adminPermission, 10);
+        registerStringSetting("marketplace-channel-id", "Channel ID", "Discord channel id where shop marketplace posts are sent.", "marketplace", ZyroxSettingType.STRING, "marketplace.channel-id", true, adminPermission, 20, false, false);
+        registerBooleanSetting("marketplace-post-new-shops", "Post New Shops", "Posts newly created shops to the marketplace channel.", "marketplace", "marketplace.post-new-shops", adminPermission, 30);
+        registerBooleanSetting("marketplace-post-updates", "Post Updates", "Posts item, price, bundle, and restock updates to the marketplace channel.", "marketplace", "marketplace.post-updates", adminPermission, 40);
+        registerIntegerSetting("marketplace-revenue-reminder-hours", "Revenue Reminder Hours", "Hours between private Discord reminders for unclaimed shop revenue.", "marketplace", "marketplace.revenue-reminder-hours", adminPermission, 50);
+        registerBooleanSetting("marketplace-market-command", "Market Command Enabled", "Registers the Discord /market shop search command.", "marketplace", "marketplace.market-command-enabled", adminPermission, 60);
 
         registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for account links.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, adminPermission, 10, true, false);
 
@@ -290,6 +314,12 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregister("zyrox-dc", "chat-sync-minecraft-format");
         zyroxApi.settings().unregister("zyrox-dc", "chat-sync-discord-format");
         zyroxApi.settings().unregister("zyrox-dc", "chat-sync-max-length");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-enabled");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-channel-id");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-post-new-shops");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-post-updates");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-revenue-reminder-hours");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-market-command");
         zyroxApi.settings().unregister("zyrox-dc", "storage-sqlite-file");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-admin");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-web");
@@ -299,6 +329,7 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregisterCategory("zyrox-dc", "join-gate");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "ban-sync");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "chat-sync");
+        zyroxApi.settings().unregisterCategory("zyrox-dc", "marketplace");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "storage");
         zyroxApi.settings().unregisterCategory("zyrox-dc", "permissions");
     }
@@ -449,6 +480,18 @@ public final class ZyroxDcPlugin extends JavaPlugin {
     private ZyroxApi loadZyroxApi() {
         RegisteredServiceProvider<ZyroxApi> provider = getServer().getServicesManager().getRegistration(ZyroxApi.class);
         return provider == null ? null : provider.getProvider();
+    }
+
+    private ZyroxDcMarketplaceIntegration createMarketplaceIntegration() {
+        try {
+            Class.forName("de.tecca.zyrox.shop.api.ZyroxShopMarketService", false, getClass().getClassLoader());
+            return new ZyroxDcMarketplaceIntegration(this, zyroxApi, storage, discordBot);
+        } catch (ClassNotFoundException | LinkageError exception) {
+            if (getConfig().getBoolean("marketplace.enabled", false)) {
+                getLogger().warning("ZyroxDC marketplace is enabled, but ZyroxShop market API is not available.");
+            }
+            return null;
+        }
     }
 
     private File storageFile() {

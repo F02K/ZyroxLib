@@ -10,10 +10,12 @@ import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
 import de.tecca.zyrox.api.setting.ZyroxSettingResult;
 import de.tecca.zyrox.api.setting.ZyroxSettingType;
 import de.tecca.zyrox.economy.api.ZyroxDiamondPaymentService;
+import de.tecca.zyrox.shop.api.ZyroxShopMarketService;
 import de.tecca.zyrox.shop.command.ShopCommand;
 import de.tecca.zyrox.shop.hologram.ShopHologramService;
 import de.tecca.zyrox.shop.hologram.ShopHolograms;
 import de.tecca.zyrox.shop.listener.ShopListener;
+import de.tecca.zyrox.shop.market.ShopMarketService;
 import de.tecca.zyrox.shop.service.ShopService;
 import de.tecca.zyrox.shop.storage.ShopRecord;
 import de.tecca.zyrox.shop.storage.ShopStorage;
@@ -25,6 +27,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
@@ -36,9 +39,11 @@ public final class ZyroxShopPlugin extends JavaPlugin {
     private ZyroxDiamondPaymentService payments;
     private ShopStorage storage;
     private ShopHologramService holograms;
+    private ShopMarketService marketService;
     private ShopService shopService;
     private ShopText text;
     private BukkitTask hologramRepairTask;
+    private BukkitTask emptyStockTask;
 
     @Override
     public void onEnable() {
@@ -60,6 +65,7 @@ public final class ZyroxShopPlugin extends JavaPlugin {
         try {
             storage = new ShopStorage(this, storageFile());
             storage.open();
+            configureStorage();
         } catch (SQLException exception) {
             getLogger().severe("Could not open ZyroxShop storage: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -68,13 +74,16 @@ public final class ZyroxShopPlugin extends JavaPlugin {
 
         text = new ShopText(this, payments);
         holograms = ShopHolograms.create(this, text);
-        shopService = new ShopService(this, storage, payments, holograms, text);
+        marketService = new ShopMarketService(storage);
+        shopService = new ShopService(this, storage, payments, holograms, text, marketService);
 
         registerZyroxApiIntegrations();
         registerCommand();
         registerListeners();
+        shopService.performEmptyStockMaintenance();
         restoreHolograms();
         startHologramRepairTask();
+        startEmptyStockTask();
 
         getLogger().info("ZyroxShop is enabled.");
     }
@@ -84,6 +93,10 @@ public final class ZyroxShopPlugin extends JavaPlugin {
         if (hologramRepairTask != null) {
             hologramRepairTask.cancel();
             hologramRepairTask = null;
+        }
+        if (emptyStockTask != null) {
+            emptyStockTask.cancel();
+            emptyStockTask = null;
         }
         if (holograms != null) {
             holograms.clear();
@@ -107,14 +120,24 @@ public final class ZyroxShopPlugin extends JavaPlugin {
         if (hologramRepairTask != null) {
             hologramRepairTask.cancel();
         }
+        if (emptyStockTask != null) {
+            emptyStockTask.cancel();
+        }
         if (holograms != null) {
             holograms.clear();
         }
+        configureStorage();
         text = new ShopText(this, payments);
         holograms = ShopHolograms.create(this, text);
-        shopService = new ShopService(this, storage, payments, holograms, text);
+        if (marketService == null) {
+            marketService = new ShopMarketService(storage);
+        }
+        zyroxApi.services().register(ZyroxShopMarketService.class, marketService);
+        shopService = new ShopService(this, storage, payments, holograms, text, marketService);
+        shopService.performEmptyStockMaintenance();
         restoreHolograms();
         startHologramRepairTask();
+        startEmptyStockTask();
     }
 
     public ShopService shopService() {
@@ -161,6 +184,7 @@ public final class ZyroxShopPlugin extends JavaPlugin {
                 "Virtual-stock chest shops paid with physical diamonds.",
                 webPermission
         ));
+        zyroxApi.services().register(ZyroxShopMarketService.class, marketService);
         registerSettings();
         zyroxApi.actions().register(MODULE_ID, new ZyroxAction(
                 "reload",
@@ -177,6 +201,7 @@ public final class ZyroxShopPlugin extends JavaPlugin {
 
     private void unregisterZyroxApiIntegrations() {
         zyroxApi.modules().unregister(MODULE_ID);
+        zyroxApi.services().unregister(ZyroxShopMarketService.class);
         zyroxApi.actions().unregister(MODULE_ID, "reload");
         unregisterSettings();
     }
@@ -189,10 +214,15 @@ public final class ZyroxShopPlugin extends JavaPlugin {
 
         registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for shops.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, 10, true);
         registerStringSetting("shop-default-price", "Default Price", "Default diamond price for new shops.", "shop", ZyroxSettingType.STRING, "shop.default-price-diamonds", true, 10, false);
-        registerStringSetting("shop-hologram-text-offset-y", "Hologram Text Y Offset", "Vertical hologram text offset above the chest.", "shop", ZyroxSettingType.STRING, "shop.hologram-text-offset-y", true, 20, false);
-        registerStringSetting("shop-hologram-text-scale", "Hologram Text Scale", "Scale multiplier for TextDisplay hologram text.", "shop", ZyroxSettingType.STRING, "shop.hologram-text-scale", true, 30, false);
-        registerStringSetting("shop-item-display-offset-y", "Item Display Y Offset", "Vertical item display offset above the chest.", "shop", ZyroxSettingType.STRING, "shop.item-display-offset-y", true, 40, false);
-        registerStringSetting("shop-item-display-scale", "Item Display Scale", "Scale multiplier for the displayed shop item.", "shop", ZyroxSettingType.STRING, "shop.item-display-scale", true, 50, false);
+        registerStringSetting("shop-empty-stock-auto-close-days", "Empty Stock Auto-Close Days", "Days before an empty shop is automatically removed.", "shop", ZyroxSettingType.STRING, "shop.empty-stock-auto-close-days", true, 20, false);
+        registerStringSetting("shop-empty-stock-check-interval", "Empty Stock Check Interval", "Minutes between empty shop cleanup checks.", "shop", ZyroxSettingType.STRING, "shop.empty-stock-check-interval-minutes", true, 30, false);
+        registerStringSetting("shop-empty-stock-warning-interval", "Empty Stock Warning Interval", "Hours between repeated owner warnings.", "shop", ZyroxSettingType.STRING, "shop.empty-stock-warning-interval-hours", true, 40, false);
+        registerStringSetting("shop-empty-stock-login-warning-delay", "Empty Stock Login Warning Delay", "Ticks after login before empty shop warnings are sent.", "shop", ZyroxSettingType.STRING, "shop.empty-stock-login-warning-delay-ticks", true, 50, false);
+        registerStringSetting("shop-empty-stock-warning-sound", "Empty Stock Warning Sound", "Bukkit sound played for empty shop warnings.", "shop", ZyroxSettingType.STRING, "shop.empty-stock-warning-sound", true, 60, false);
+        registerStringSetting("shop-hologram-text-offset-y", "Hologram Text Y Offset", "Vertical hologram text offset above the chest.", "shop", ZyroxSettingType.STRING, "shop.hologram-text-offset-y", true, 70, false);
+        registerStringSetting("shop-hologram-text-scale", "Hologram Text Scale", "Scale multiplier for TextDisplay hologram text.", "shop", ZyroxSettingType.STRING, "shop.hologram-text-scale", true, 80, false);
+        registerStringSetting("shop-item-display-offset-y", "Item Display Y Offset", "Vertical item display offset above the chest.", "shop", ZyroxSettingType.STRING, "shop.item-display-offset-y", true, 90, false);
+        registerStringSetting("shop-item-display-scale", "Item Display Scale", "Scale multiplier for the displayed shop item.", "shop", ZyroxSettingType.STRING, "shop.item-display-scale", true, 100, false);
         registerStringSetting("holograms-backend", "Backend", "auto, decent, textdisplay, or none.", "holograms", ZyroxSettingType.STRING, "holograms.backend", true, 10, false);
         registerStringSetting("permission-use", "Use Permission", "Permission required to buy from shops.", "permissions", ZyroxSettingType.STRING, "permissions.use", true, 10, true);
         registerStringSetting("permission-create", "Create Permission", "Permission required to create shops.", "permissions", ZyroxSettingType.STRING, "permissions.create", true, 20, true);
@@ -204,6 +234,11 @@ public final class ZyroxShopPlugin extends JavaPlugin {
         for (String settingId : List.of(
                 "storage-sqlite-file",
                 "shop-default-price",
+                "shop-empty-stock-auto-close-days",
+                "shop-empty-stock-check-interval",
+                "shop-empty-stock-warning-interval",
+                "shop-empty-stock-login-warning-delay",
+                "shop-empty-stock-warning-sound",
                 "shop-hologram-text-offset-y",
                 "shop-hologram-text-scale",
                 "shop-item-display-offset-y",
@@ -267,6 +302,23 @@ public final class ZyroxShopPlugin extends JavaPlugin {
 
     private void startHologramRepairTask() {
         hologramRepairTask = getServer().getScheduler().runTaskTimer(this, this::restoreHolograms, 20L * 60L, 20L * 300L);
+    }
+
+    private void startEmptyStockTask() {
+        long intervalMinutes = Math.max(1L, getConfig().getLong("shop.empty-stock-check-interval-minutes", 10L));
+        long periodTicks = intervalMinutes * 60L * 20L;
+        emptyStockTask = getServer().getScheduler().runTaskTimer(this, () -> {
+            shopService.performEmptyStockMaintenance();
+            shopService.warnOnlineOwnersAboutEmptyShops();
+        }, 20L * 60L, periodTicks);
+    }
+
+    private void configureStorage() {
+        if (storage == null) {
+            return;
+        }
+        long days = Math.max(1L, getConfig().getLong("shop.empty-stock-auto-close-days", 5L));
+        storage.setEmptyStockAutoCloseDuration(Duration.ofDays(days));
     }
 
     private ZyroxApi loadZyroxApi() {

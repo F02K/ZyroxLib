@@ -5,6 +5,8 @@ api-version: '1.21'
 author: tecca
 depend:
   - ZyroxAPI
+softdepend:
+  - ZyroxShop
 libraries:
   - net.dv8tion:JDA:6.4.2
   - org.xerial:sqlite-jdbc:3.53.2.0

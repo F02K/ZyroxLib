@@ -12,6 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -97,46 +98,59 @@ public final class EnchantBookService {
     }
 
     public ItemStack applyZyroxBook(ItemStack target, ItemStack book, ItemStack vanillaResult, int maxLevel) {
-        if (isEmpty(target) || !isZyroxBook(book) || !(book.getItemMeta() instanceof EnchantmentStorageMeta meta)) {
+        if (isEmpty(target) || !isZyroxBook(book)) {
             return null;
         }
 
-        ItemStack result = vanillaResult == null ? target.clone() : vanillaResult.clone();
-        sanitizeAnvilResult(target, result);
+        return combineAnvilResult(target, book, vanillaResult, maxLevel);
+    }
 
-        boolean appliedAny = false;
-        boolean appliedOverlevel = false;
-        for (Map.Entry<Enchantment, Integer> entry : meta.getStoredEnchants().entrySet()) {
+    public ItemStack combineAnvilResult(ItemStack first, ItemStack second, ItemStack vanillaResult, int maxLevel) {
+        if (isEmpty(first)) {
+            return null;
+        }
+
+        if (!hasZyroxAnvilInput(first, second)) {
+            return sanitizeAnvilResult(first, vanillaResult);
+        }
+
+        ItemStack result = vanillaResult == null ? first.clone() : vanillaResult.clone();
+        sanitizeAnvilResult(first, result);
+
+        Map<Enchantment, Integer> leftEnchants = sourceEnchants(first);
+        Map<Enchantment, Integer> rightEnchants = sourceEnchants(second);
+        boolean leftIsTrusted = isZyroxCarrier(first);
+        boolean rightIsTrusted = isZyroxCarrier(second);
+        boolean combinedAny = false;
+
+        for (Map.Entry<Enchantment, Integer> entry : rightEnchants.entrySet()) {
             Enchantment enchantment = entry.getKey();
-            if (!canApplyFromZyroxBook(target, result, enchantment)) {
+            if (!canApplyFromAnvilSource(first, result, enchantment)) {
                 continue;
             }
 
-            int requestedLevel = cappedBookLevel(entry.getValue(), maxLevel);
-            if (requestedLevel < 1) {
+            int vanillaMaxLevel = enchantment.getMaxLevel();
+            int leftLevel = trustedAnvilLevel(vanillaMaxLevel, leftEnchants.getOrDefault(enchantment, 0), leftIsTrusted, maxLevel);
+            int rightLevel = trustedAnvilLevel(vanillaMaxLevel, entry.getValue(), rightIsTrusted, maxLevel);
+            if (rightLevel < 1) {
                 continue;
             }
 
-            int currentLevel = result.getEnchantmentLevel(enchantment);
-            int appliedLevel = Math.max(currentLevel, requestedLevel);
+            combinedAny = true;
+            int currentLevel = resultEnchantLevel(result, enchantment);
+            int appliedLevel = combinedAnvilLevel(leftLevel, rightLevel, maxLevel);
             if (appliedLevel <= currentLevel) {
                 continue;
             }
 
-            appliedAny = true;
-            result.addUnsafeEnchantment(enchantment, appliedLevel);
-            if (appliedLevel > enchantment.getMaxLevel()) {
-                appliedOverlevel = true;
-            }
+            setResultEnchant(result, enchantment, appliedLevel);
         }
 
-        if (!appliedAny && vanillaResult == null) {
+        if (!combinedAny && vanillaResult == null) {
             return null;
         }
 
-        if (appliedOverlevel || hasOverleveledEnchant(result)) {
-            markZyroxEnchanted(result);
-        }
+        markResultIfOverleveled(result);
         return result;
     }
 
@@ -145,19 +159,18 @@ public final class EnchantBookService {
             return result;
         }
 
-        boolean leftIsZyroxEnchanted = isZyroxEnchanted(leftInput);
-        Map<Enchantment, Integer> leftEnchants = isEmpty(leftInput) ? Map.of() : leftInput.getEnchantments();
+        boolean leftIsZyroxEnchanted = isZyroxCarrier(leftInput);
+        Map<Enchantment, Integer> leftEnchants = sourceEnchants(leftInput);
         boolean keptOverlevel = false;
 
-        for (Map.Entry<Enchantment, Integer> entry : result.getEnchantments().entrySet()) {
+        for (Map.Entry<Enchantment, Integer> entry : sourceEnchants(result).entrySet()) {
             Enchantment enchantment = entry.getKey();
             int resultLevel = entry.getValue();
             int vanillaMax = enchantment.getMaxLevel();
             int allowedLevel = allowedAnvilLevel(vanillaMax, leftEnchants.getOrDefault(enchantment, 0), leftIsZyroxEnchanted);
 
             if (resultLevel > allowedLevel) {
-                result.removeEnchantment(enchantment);
-                result.addUnsafeEnchantment(enchantment, allowedLevel);
+                setResultEnchant(result, enchantment, allowedLevel);
                 resultLevel = allowedLevel;
             }
 
@@ -167,7 +180,7 @@ public final class EnchantBookService {
         }
 
         if (keptOverlevel) {
-            markZyroxEnchanted(result);
+            markResultIfOverleveled(result);
         }
         return result;
     }
@@ -241,6 +254,14 @@ public final class EnchantBookService {
         return meta != null && meta.getPersistentDataContainer().has(enchantedItemMarkerKey, PersistentDataType.BYTE);
     }
 
+    private boolean hasZyroxAnvilInput(ItemStack first, ItemStack second) {
+        return isZyroxCarrier(first) || isZyroxCarrier(second);
+    }
+
+    private boolean isZyroxCarrier(ItemStack item) {
+        return isZyroxBook(item) || isZyroxEnchanted(item);
+    }
+
     int allowedAnvilLevel(int vanillaMax, int leftLevel, boolean leftIsZyroxEnchanted) {
         if (leftIsZyroxEnchanted && leftLevel > vanillaMax) {
             return leftLevel;
@@ -252,12 +273,29 @@ public final class EnchantBookService {
         return Math.min(bookLevel, configuredMaxLevel);
     }
 
-    private boolean canApplyFromZyroxBook(ItemStack target, ItemStack result, Enchantment enchantment) {
-        if (!isVanilla(enchantment) || !enchantment.canEnchantItem(target)) {
+    int combinedAnvilLevel(int leftLevel, int rightLevel, int configuredMaxLevel) {
+        int combined = leftLevel == rightLevel ? leftLevel + 1 : Math.max(leftLevel, rightLevel);
+        return Math.min(combined, configuredMaxLevel);
+    }
+
+    int trustedAnvilLevel(int vanillaMaxLevel, int level, boolean trustedSource, int configuredMaxLevel) {
+        if (level < 1) {
+            return 0;
+        }
+
+        int cappedLevel = Math.min(level, configuredMaxLevel);
+        if (trustedSource) {
+            return cappedLevel;
+        }
+        return Math.min(cappedLevel, vanillaMaxLevel);
+    }
+
+    private boolean canApplyFromAnvilSource(ItemStack target, ItemStack result, Enchantment enchantment) {
+        if (!isVanilla(enchantment) || (!isEnchantedBook(target) && !enchantment.canEnchantItem(target))) {
             return false;
         }
 
-        for (Enchantment existing : result.getEnchantments().keySet()) {
+        for (Enchantment existing : sourceEnchants(result).keySet()) {
             if (!existing.equals(enchantment) && (existing.conflictsWith(enchantment) || enchantment.conflictsWith(existing))) {
                 return false;
             }
@@ -265,13 +303,63 @@ public final class EnchantBookService {
         return true;
     }
 
+    private void setResultEnchant(ItemStack result, Enchantment enchantment, int level) {
+        if (isEnchantedBook(result) && result.getItemMeta() instanceof EnchantmentStorageMeta meta) {
+            if (meta.hasStoredEnchant(enchantment)) {
+                meta.removeStoredEnchant(enchantment);
+            }
+            meta.addStoredEnchant(enchantment, level, true);
+            result.setItemMeta(meta);
+            return;
+        }
+
+        result.removeEnchantment(enchantment);
+        result.addUnsafeEnchantment(enchantment, level);
+    }
+
+    private int resultEnchantLevel(ItemStack item, Enchantment enchantment) {
+        if (isEnchantedBook(item) && item.getItemMeta() instanceof EnchantmentStorageMeta meta) {
+            return meta.getStoredEnchantLevel(enchantment);
+        }
+        return item.getEnchantmentLevel(enchantment);
+    }
+
+    private Map<Enchantment, Integer> sourceEnchants(ItemStack item) {
+        if (isEmpty(item)) {
+            return Map.of();
+        }
+
+        if (isEnchantedBook(item) && item.getItemMeta() instanceof EnchantmentStorageMeta meta) {
+            return new HashMap<>(meta.getStoredEnchants());
+        }
+        return new HashMap<>(item.getEnchantments());
+    }
+
+    private void markResultIfOverleveled(ItemStack item) {
+        if (!hasOverleveledEnchant(item)) {
+            return;
+        }
+
+        if (isEnchantedBook(item) && item.getItemMeta() instanceof EnchantmentStorageMeta meta) {
+            markZyroxBook(meta);
+            item.setItemMeta(meta);
+            return;
+        }
+
+        markZyroxEnchanted(item);
+    }
+
     private boolean hasOverleveledEnchant(ItemStack item) {
         if (isEmpty(item)) {
             return false;
         }
 
-        return item.getEnchantments().entrySet().stream()
+        return sourceEnchants(item).entrySet().stream()
                 .anyMatch(entry -> entry.getValue() > entry.getKey().getMaxLevel());
+    }
+
+    private boolean isEnchantedBook(ItemStack item) {
+        return item != null && item.getType() == Material.ENCHANTED_BOOK;
     }
 
     private boolean isEmpty(ItemStack item) {

@@ -13,10 +13,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public final class ShopStorage implements AutoCloseable {
@@ -24,6 +28,8 @@ public final class ShopStorage implements AutoCloseable {
     private final JavaPlugin plugin;
     private final File databaseFile;
     private final ShopItemCodec itemCodec;
+    private final Clock clock;
+    private Duration emptyStockAutoCloseDuration = Duration.ofDays(5);
     private Connection connection;
 
     public ShopStorage(JavaPlugin plugin, File databaseFile) {
@@ -41,9 +47,22 @@ public final class ShopStorage implements AutoCloseable {
     }
 
     public ShopStorage(JavaPlugin plugin, File databaseFile, ShopItemCodec itemCodec) {
+        this(plugin, databaseFile, itemCodec, Clock.systemUTC());
+    }
+
+    public ShopStorage(JavaPlugin plugin, File databaseFile, ShopItemCodec itemCodec, Clock clock) {
         this.plugin = plugin;
         this.databaseFile = databaseFile;
         this.itemCodec = itemCodec;
+        this.clock = clock;
+    }
+
+    public synchronized void setEmptyStockAutoCloseDuration(Duration duration) {
+        if (duration == null || duration.isNegative() || duration.isZero()) {
+            emptyStockAutoCloseDuration = Duration.ofDays(5);
+            return;
+        }
+        emptyStockAutoCloseDuration = duration;
     }
 
     public synchronized void open() throws SQLException {
@@ -64,12 +83,14 @@ public final class ShopStorage implements AutoCloseable {
             long priceDiamonds
     ) throws SQLException {
         LocationKey key = LocationKey.from(location);
-        String now = Instant.now().toString();
+        String now = now();
+        String emptyStockExpiresAt = Instant.parse(now).plus(emptyStockAutoCloseDuration).toString();
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO shops(world_name, x, y, z, owner_uuid, owner_name, item_data,
                                   bundle_amount, price_diamonds, stock_amount, revenue_diamonds,
+                                  empty_stock_expires_at, last_empty_stock_warning_at,
                                   created_at, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL, ?, ?)
                 """, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, key.worldName());
             statement.setInt(2, key.x());
@@ -80,8 +101,9 @@ public final class ShopStorage implements AutoCloseable {
             statement.setString(7, itemCodec.serialize(template));
             statement.setInt(8, Math.max(1, bundleAmount));
             statement.setLong(9, Math.max(1, priceDiamonds));
-            statement.setString(10, now);
+            statement.setString(10, emptyStockExpiresAt);
             statement.setString(11, now);
+            statement.setString(12, now);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (!keys.next()) {
@@ -137,7 +159,7 @@ public final class ShopStorage implements AutoCloseable {
                 """)) {
             statement.setInt(1, Math.max(1, bundleAmount));
             statement.setLong(2, Math.max(1, priceDiamonds));
-            statement.setString(3, Instant.now().toString());
+            statement.setString(3, now());
             statement.setLong(4, shopId);
             statement.executeUpdate();
         }
@@ -151,7 +173,7 @@ public final class ShopStorage implements AutoCloseable {
                 WHERE id = ?
                 """)) {
             statement.setString(1, itemCodec.serialize(template));
-            statement.setString(2, Instant.now().toString());
+            statement.setString(2, now());
             statement.setLong(3, shopId);
             statement.executeUpdate();
         }
@@ -188,13 +210,25 @@ public final class ShopStorage implements AutoCloseable {
             }
             try (PreparedStatement statement = connection.prepareStatement("""
                     UPDATE shops
-                    SET stock_amount = stock_amount - ?, updated_at = ?
+                    SET stock_amount = stock_amount - ?,
+                        empty_stock_expires_at = CASE
+                            WHEN stock_amount - ? <= 0 THEN ?
+                            ELSE empty_stock_expires_at
+                        END,
+                        last_empty_stock_warning_at = CASE
+                            WHEN stock_amount - ? <= 0 THEN NULL
+                            ELSE last_empty_stock_warning_at
+                        END,
+                        updated_at = ?
                     WHERE id = ? AND stock_amount >= ?
                     """)) {
                 statement.setLong(1, amount);
-                statement.setString(2, Instant.now().toString());
-                statement.setLong(3, shopId);
+                statement.setLong(2, amount);
+                statement.setString(3, deadlineFromNow());
                 statement.setLong(4, amount);
+                statement.setString(5, now());
+                statement.setLong(6, shopId);
+                statement.setLong(7, amount);
                 if (statement.executeUpdate() != 1) {
                     throw new SQLException("Shop stock changed before withdrawal could complete.");
                 }
@@ -235,16 +269,27 @@ public final class ShopStorage implements AutoCloseable {
                     UPDATE shops
                     SET stock_amount = stock_amount - ?,
                         revenue_diamonds = revenue_diamonds + ?,
+                        empty_stock_expires_at = CASE
+                            WHEN stock_amount - ? <= 0 THEN ?
+                            ELSE empty_stock_expires_at
+                        END,
+                        last_empty_stock_warning_at = CASE
+                            WHEN stock_amount - ? <= 0 THEN NULL
+                            ELSE last_empty_stock_warning_at
+                        END,
                         updated_at = ?
                     WHERE id = ? AND bundle_amount = ? AND price_diamonds = ? AND stock_amount >= ?
                     """)) {
                 statement.setLong(1, items);
                 statement.setLong(2, price);
-                statement.setString(3, Instant.now().toString());
-                statement.setLong(4, shopId);
-                statement.setInt(5, expectedBundleAmount);
-                statement.setLong(6, expectedPriceDiamonds);
-                statement.setLong(7, items);
+                statement.setLong(3, items);
+                statement.setString(4, deadlineFromNow());
+                statement.setLong(5, items);
+                statement.setString(6, now());
+                statement.setLong(7, shopId);
+                statement.setInt(8, expectedBundleAmount);
+                statement.setLong(9, expectedPriceDiamonds);
+                statement.setLong(10, items);
                 if (statement.executeUpdate() != 1) {
                     throw new SQLException("Shop offer or stock changed before purchase could complete.");
                 }
@@ -278,7 +323,7 @@ public final class ShopStorage implements AutoCloseable {
                     WHERE id = ? AND revenue_diamonds >= ?
                     """)) {
                 statement.setLong(1, amount);
-                statement.setString(2, Instant.now().toString());
+                statement.setString(2, now());
                 statement.setLong(3, shopId);
                 statement.setLong(4, amount);
                 if (statement.executeUpdate() != 1) {
@@ -306,11 +351,61 @@ public final class ShopStorage implements AutoCloseable {
                 WHERE id = ?
                 """)) {
             statement.setLong(1, amount);
-            statement.setString(2, Instant.now().toString());
+            statement.setString(2, now());
             statement.setLong(3, shopId);
             statement.executeUpdate();
         }
         return findById(shopId).orElseThrow();
+    }
+
+    public synchronized int initializeMissingEmptyStockDeadlines() throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE shops
+                SET empty_stock_expires_at = ?,
+                    last_empty_stock_warning_at = NULL,
+                    updated_at = ?
+                WHERE stock_amount <= 0 AND empty_stock_expires_at IS NULL
+                """)) {
+            String now = now();
+            statement.setString(1, Instant.parse(now).plus(emptyStockAutoCloseDuration).toString());
+            statement.setString(2, now);
+            return statement.executeUpdate();
+        }
+    }
+
+    public synchronized List<ShopRecord> expiredEmptyStockShops() throws SQLException {
+        List<ShopRecord> shops = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT *
+                FROM shops
+                WHERE stock_amount <= 0
+                  AND empty_stock_expires_at IS NOT NULL
+                  AND empty_stock_expires_at <= ?
+                ORDER BY id
+                """)) {
+            statement.setString(1, now());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    shops.add(readShop(resultSet));
+                }
+            }
+        }
+        return shops;
+    }
+
+    public synchronized void markEmptyStockWarningSent(long shopId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE shops
+                SET last_empty_stock_warning_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """)) {
+            String now = now();
+            statement.setString(1, now);
+            statement.setString(2, now);
+            statement.setLong(3, shopId);
+            statement.executeUpdate();
+        }
     }
 
     public synchronized boolean deleteShop(long shopId, Player actor, boolean force) throws SQLException {
@@ -364,6 +459,8 @@ public final class ShopStorage implements AutoCloseable {
                         price_diamonds INTEGER NOT NULL,
                         stock_amount INTEGER NOT NULL,
                         revenue_diamonds INTEGER NOT NULL,
+                        empty_stock_expires_at TEXT,
+                        last_empty_stock_warning_at TEXT,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         UNIQUE(world_name, x, y, z)
@@ -381,17 +478,22 @@ public final class ShopStorage implements AutoCloseable {
                         created_at TEXT NOT NULL
                     )
                     """);
+            addColumnIfMissing(statement, "shops", "empty_stock_expires_at", "TEXT");
+            addColumnIfMissing(statement, "shops", "last_empty_stock_warning_at", "TEXT");
         }
     }
 
     private void addStockUnchecked(long shopId, long amount) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 UPDATE shops
-                SET stock_amount = stock_amount + ?, updated_at = ?
+                SET stock_amount = stock_amount + ?,
+                    empty_stock_expires_at = NULL,
+                    last_empty_stock_warning_at = NULL,
+                    updated_at = ?
                 WHERE id = ?
                 """)) {
             statement.setLong(1, amount);
-            statement.setString(2, Instant.now().toString());
+            statement.setString(2, now());
             statement.setLong(3, shopId);
             statement.executeUpdate();
         }
@@ -414,9 +516,35 @@ public final class ShopStorage implements AutoCloseable {
             statement.setString(4, type.name());
             statement.setLong(5, itemAmount);
             statement.setLong(6, diamondAmount);
-            statement.setString(7, Instant.now().toString());
+            statement.setString(7, now());
             statement.executeUpdate();
         }
+    }
+
+    private void addColumnIfMissing(Statement statement, String tableName, String columnName, String type) throws SQLException {
+        if (columnNames(tableName).contains(columnName)) {
+            return;
+        }
+        statement.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + type);
+    }
+
+    private Set<String> columnNames(String tableName) throws SQLException {
+        Set<String> columns = new HashSet<>();
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")");
+             ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                columns.add(resultSet.getString("name"));
+            }
+        }
+        return columns;
+    }
+
+    private String deadlineFromNow() {
+        return Instant.now(clock).plus(emptyStockAutoCloseDuration).toString();
+    }
+
+    private String now() {
+        return Instant.now(clock).toString();
     }
 
     private ShopRecord readShop(ResultSet resultSet) throws SQLException {
@@ -433,6 +561,8 @@ public final class ShopStorage implements AutoCloseable {
                 resultSet.getLong("price_diamonds"),
                 resultSet.getLong("stock_amount"),
                 resultSet.getLong("revenue_diamonds"),
+                resultSet.getString("empty_stock_expires_at"),
+                resultSet.getString("last_empty_stock_warning_at"),
                 resultSet.getString("created_at"),
                 resultSet.getString("updated_at")
         );

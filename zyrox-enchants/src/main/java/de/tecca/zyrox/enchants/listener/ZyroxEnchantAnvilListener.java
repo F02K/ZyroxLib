@@ -22,15 +22,10 @@ public final class ZyroxEnchantAnvilListener implements Listener {
         ItemStack second = inventory.getSecondItem();
         ItemStack currentResult = event.getResult();
 
-        if (plugin.enchants().isZyroxBook(second)) {
-            ItemStack result = plugin.enchants().applyZyroxBook(first, second, currentResult, plugin.maxLevel());
-            event.setResult(result);
-            if (currentResult == null && result != null && event.getView().getRepairCost() <= 0) {
-                event.getView().setRepairCost(1);
-            }
-            return;
+        ItemStack result = plugin.enchants().combineAnvilResult(first, second, currentResult, plugin.maxLevel());
+        event.setResult(result);
+        if (currentResult == null && result != null && event.getView().getRepairCost() <= 0) {
+            event.getView().setRepairCost(1);
         }
-
-        event.setResult(plugin.enchants().sanitizeAnvilResult(first, currentResult));
     }
 }

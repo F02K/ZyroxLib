@@ -3,6 +3,11 @@ storage:
 
 shop:
   default-price-diamonds: 1
+  empty-stock-auto-close-days: 5
+  empty-stock-check-interval-minutes: 10
+  empty-stock-warning-interval-hours: 24
+  empty-stock-login-warning-delay-ticks: 60
+  empty-stock-warning-sound: "BLOCK_NOTE_BLOCK_PLING"
   hologram-text-offset-y: 1.5
   hologram-text-scale: 1.0
   item-display-offset-y: 1.25
@@ -13,8 +18,11 @@ holograms:
   lines:
     - "Besitzer: {owner}"
     - "{bundle}x {item}"
+    - "{enchant_lines}"
     - "Preis: {price}"
     - "Lager: {stock}"
+    - "{empty_stock_lines}"
+  empty-stock-line: "Schliesst in: {empty_stock_time_left}"
 
 messages:
   create-not-chest: "Dieser Block ist keine Truhe."
@@ -50,6 +58,7 @@ messages:
   revenue-withdraw-failed: "Die Einnahmen haben sich geändert. Bitte versuche es erneut."
   delete-blocked: "Entnimm erst Lagerbestand und gespeicherte Diamanten, bevor du den Shop löschst."
   delete-success: "Shop entfernt."
+  empty-stock-warning: "Achtung: Shop #{shop_id} ({item}) ist leer und wird in {empty_stock_time_left} automatisch geloescht. Deadline: {empty_stock_expires_at}. Gespeicherte Einnahmen: {revenue}."
   action-busy: "Bitte warte einen Moment."
   storage-failed: "Der Shop-Speicher ist gerade nicht erreichbar."
   no-admin-permission: "Du darfst Shops nicht verwalten."
@@ -70,6 +79,7 @@ gui:
     selling-lore:
       - "Klicke mit einem Item in der Hand,"
       - "um das Shop-Item zu ersetzen."
+      - "{enchant_lines}"
       - "Das Lager muss dafür leer sein."
     price-down-name: "Preis -1"
     price-info-name: "Preis"
@@ -99,6 +109,7 @@ gui:
   purchase:
     title: "Shop #{shop_id}"
     item-lore:
+      - "{enchant_lines}"
       - "Preis: {price}"
       - "Lager: {stock}"
     buy-name: "{bundles} Paket(e) kaufen"

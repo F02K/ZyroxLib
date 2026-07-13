@@ -15,6 +15,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -35,6 +36,16 @@ public final class ShopListener implements Listener {
         this.plugin = plugin;
         this.shops = shops;
         this.payments = payments;
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onJoin(PlayerJoinEvent event) {
+        long delay = Math.max(1L, plugin.getConfig().getLong("shop.empty-stock-login-warning-delay-ticks", 60L));
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (event.getPlayer().isOnline()) {
+                shops.warnOwnerAboutEmptyShops(event.getPlayer());
+            }
+        }, delay);
     }
 
     @EventHandler(ignoreCancelled = true)

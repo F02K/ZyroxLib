@@ -19,6 +19,7 @@ import java.util.UUID;
 public final class ZyroxDcStorage implements AutoCloseable {
 
     private static final int INITIAL_SCHEMA_VERSION = 1;
+    private static final int MARKETPLACE_SCHEMA_VERSION = 2;
 
     private final JavaPlugin plugin;
     private final File databaseFile;
@@ -199,6 +200,37 @@ public final class ZyroxDcStorage implements AutoCloseable {
         }
     }
 
+    public synchronized Optional<Instant> findMarketplaceRevenueReminder(long shopId, UUID ownerUuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT last_sent_at
+                FROM marketplace_revenue_reminders
+                WHERE shop_id = ? AND owner_uuid = ?
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, ownerUuid.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(Instant.parse(resultSet.getString("last_sent_at")));
+            }
+        }
+    }
+
+    public synchronized void markMarketplaceRevenueReminderSent(long shopId, UUID ownerUuid, Instant sentAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO marketplace_revenue_reminders(shop_id, owner_uuid, last_sent_at)
+                VALUES(?, ?, ?)
+                ON CONFLICT(shop_id, owner_uuid) DO UPDATE SET
+                    last_sent_at = excluded.last_sent_at
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, ownerUuid.toString());
+            statement.setString(3, sentAt.toString());
+            statement.executeUpdate();
+        }
+    }
+
     public synchronized List<String> duplicateMinecraftKeys() throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT COALESCE(NULLIF(minecraft_uuid, ''), LOWER(minecraft_username)) AS key
@@ -242,15 +274,18 @@ public final class ZyroxDcStorage implements AutoCloseable {
 
     private void migrate() throws SQLException {
         createMigrationTable();
-        if (isMigrationApplied(INITIAL_SCHEMA_VERSION)) {
-            return;
-        }
 
         boolean previousAutoCommit = connection.getAutoCommit();
         try {
             connection.setAutoCommit(false);
-            applyInitialSchemaMigration();
-            recordMigration(INITIAL_SCHEMA_VERSION);
+            if (!isMigrationApplied(INITIAL_SCHEMA_VERSION)) {
+                applyInitialSchemaMigration();
+                recordMigration(INITIAL_SCHEMA_VERSION);
+            }
+            if (!isMigrationApplied(MARKETPLACE_SCHEMA_VERSION)) {
+                applyMarketplaceSchemaMigration();
+                recordMigration(MARKETPLACE_SCHEMA_VERSION);
+            }
             connection.commit();
         } catch (SQLException exception) {
             connection.rollback();
@@ -322,6 +357,19 @@ public final class ZyroxDcStorage implements AutoCloseable {
                         reason TEXT,
                         banned_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
+                    )
+                    """);
+        }
+    }
+
+    private void applyMarketplaceSchemaMigration() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS marketplace_revenue_reminders(
+                        shop_id INTEGER NOT NULL,
+                        owner_uuid TEXT NOT NULL,
+                        last_sent_at TEXT NOT NULL,
+                        PRIMARY KEY(shop_id, owner_uuid)
                     )
                     """);
         }

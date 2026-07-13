@@ -1,15 +1,21 @@
 package de.tecca.zyrox.shop.util;
 
 import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
 public final class ItemStacks {
@@ -123,5 +129,69 @@ public final class ItemStacks {
             return item.getItemMeta().getDisplayName();
         }
         return item.getType().name().toLowerCase().replace('_', ' ');
+    }
+
+    public static String enchantmentSummary(ItemStack item) {
+        List<String> lines = enchantmentLines(item);
+        return String.join(", ", lines);
+    }
+
+    public static List<String> enchantmentLines(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return List.of();
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return List.of();
+        }
+        List<Map.Entry<Enchantment, Integer>> enchantments = new ArrayList<>();
+        enchantments.addAll(meta.getEnchants().entrySet());
+        if (meta instanceof EnchantmentStorageMeta storageMeta) {
+            enchantments.addAll(storageMeta.getStoredEnchants().entrySet());
+        }
+        return enchantments.stream()
+                .sorted(Comparator.comparing(entry -> readableEnchantmentName(entry.getKey())))
+                .map(entry -> formatEnchantment(entry.getKey().getKey().getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static String readableEnchantmentName(Enchantment enchantment) {
+        return titleCase(enchantment.getKey().getKey().replace('_', ' '));
+    }
+
+    static String formatEnchantment(String key, int level) {
+        return titleCase(key.replace('_', ' ')) + " " + roman(level);
+    }
+
+    private static String titleCase(String value) {
+        StringBuilder builder = new StringBuilder();
+        boolean nextUpper = true;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (Character.isWhitespace(character) || character == '-') {
+                builder.append(character);
+                nextUpper = true;
+                continue;
+            }
+            builder.append(nextUpper ? Character.toUpperCase(character) : character);
+            nextUpper = false;
+        }
+        return builder.toString();
+    }
+
+    private static String roman(int value) {
+        return switch (value) {
+            case 1 -> "I";
+            case 2 -> "II";
+            case 3 -> "III";
+            case 4 -> "IV";
+            case 5 -> "V";
+            case 6 -> "VI";
+            case 7 -> "VII";
+            case 8 -> "VIII";
+            case 9 -> "IX";
+            case 10 -> "X";
+            default -> Integer.toString(value);
+        };
     }
 }

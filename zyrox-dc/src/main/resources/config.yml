@@ -47,3 +47,11 @@ chat-sync:
   minecraft-to-discord-format: "**{player}**: {message}"
   discord-to-minecraft-format: "&9[Discord]&r {display-name}: &f{message}"
   max-message-length: 256
+
+marketplace:
+  enabled: false
+  channel-id: "0"
+  post-new-shops: true
+  post-updates: true
+  revenue-reminder-hours: 24
+  market-command-enabled: true

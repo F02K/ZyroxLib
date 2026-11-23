@@ -61,19 +61,22 @@ import java.util.UUID;
 
 public final class EndDragonEggListener implements Listener {
 
-    private static final Set<InventoryType> PROCESSING_INVENTORIES = EnumSet.of(
-            InventoryType.ANVIL,
-            InventoryType.WORKBENCH,
-            InventoryType.CRAFTING,
-            InventoryType.ENCHANTING,
-            InventoryType.SMITHING,
-            InventoryType.GRINDSTONE,
-            InventoryType.STONECUTTER,
-            InventoryType.LOOM,
-            InventoryType.CARTOGRAPHY,
-            InventoryType.MERCHANT,
-            InventoryType.CRAFTER
-    );
+    private static final class ProcessingInventories {
+        // Lazy holder: InventoryType is registry-backed on 26.x and must not load with this class.
+        static final Set<InventoryType> TYPES = EnumSet.of(
+                InventoryType.ANVIL,
+                InventoryType.WORKBENCH,
+                InventoryType.CRAFTING,
+                InventoryType.ENCHANTING,
+                InventoryType.SMITHING,
+                InventoryType.GRINDSTONE,
+                InventoryType.STONECUTTER,
+                InventoryType.LOOM,
+                InventoryType.CARTOGRAPHY,
+                InventoryType.MERCHANT,
+                InventoryType.CRAFTER
+        );
+    }
     private static final long RECOVERY_WINDOW_TICKS = 3L;
     private static final double RECOVERY_RADIUS_SQUARED = 9.0D;
 
@@ -362,7 +365,7 @@ public final class EndDragonEggListener implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (PROCESSING_INVENTORIES.contains(event.getDestination().getType())) {
+        if (ProcessingInventories.TYPES.contains(event.getDestination().getType())) {
             event.setCancelled(true);
             return;
         }
@@ -394,7 +397,7 @@ public final class EndDragonEggListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onProcessingClick(InventoryClickEvent event) {
-        if (!PROCESSING_INVENTORIES.contains(event.getView().getTopInventory().getType())) {
+        if (!ProcessingInventories.TYPES.contains(event.getView().getTopInventory().getType())) {
             return;
         }
         if (dragonEggService.taggedFirstDragonEgg(event.getCurrentItem())
@@ -406,7 +409,7 @@ public final class EndDragonEggListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onProcessingDrag(InventoryDragEvent event) {
-        if (PROCESSING_INVENTORIES.contains(event.getView().getTopInventory().getType())
+        if (ProcessingInventories.TYPES.contains(event.getView().getTopInventory().getType())
                 && dragonEggService.taggedFirstDragonEgg(event.getOldCursor())) {
             event.setCancelled(true);
         }

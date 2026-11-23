@@ -4,6 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.boss.DragonBattle;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -27,6 +28,8 @@ final class FightCinematicDirectorTest {
 
     @Test
     void activeRespawnPhasesStartCinematicsAndEndCleansUpAfterAftermath() {
+        // Sound is registry-backed on 26.x; without a running server there is no RegistryAccess.
+        Assumptions.assumeTrue(registryAvailable(), "Bukkit registries need a running server");
         FightCinematicDirector director = new FightCinematicDirector(EndFightSettings.from(new YamlConfiguration()).cinematics());
         World world = world("world_the_end");
         Location center = new Location(world, 0.5D, 65.0D, 0.5D);
@@ -49,6 +52,15 @@ final class FightCinematicDirectorTest {
 
         director.beginRespawnPhase(world, DragonBattle.RespawnPhase.NONE, center, List.of());
         assertFalse(director.hasRespawnSequence("world_the_end"));
+    }
+
+    private static boolean registryAvailable() {
+        try {
+            Class.forName("org.bukkit.Sound");
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private World world(String name) {

@@ -1,7 +1,7 @@
 name: ZyroxAPI
 version: 0.1.0-SNAPSHOT
 main: de.tecca.zyrox.api.plugin.ZyroxApiPlugin
-api-version: '1.21'
+api-version: '26.3'
 author: tecca
 load: STARTUP
 softdepend:

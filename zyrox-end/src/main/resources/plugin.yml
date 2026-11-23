@@ -1,7 +1,7 @@
 name: ZyroxEnd
 version: 0.1.0-SNAPSHOT
 main: de.tecca.zyrox.end.plugin.ZyroxEndPlugin
-api-version: '1.21'
+api-version: '26.3'
 author: tecca
 depend:
   - ZyroxAPI

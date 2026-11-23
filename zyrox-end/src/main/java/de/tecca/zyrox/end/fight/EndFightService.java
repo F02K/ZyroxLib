@@ -1109,10 +1109,10 @@ public final class EndFightService {
 
         WitherSkeleton guardian = world.spawn(location, WitherSkeleton.class, spawned -> {
             prepareGuardian(spawned, "Obeliskwache");
-            setAttribute(spawned, Attribute.GENERIC_MAX_HEALTH, config.guardians().obeliskMaxHealth());
-            setAttribute(spawned, Attribute.GENERIC_ARMOR, config.guardians().obeliskArmor());
-            setAttribute(spawned, Attribute.GENERIC_KNOCKBACK_RESISTANCE, config.guardians().obeliskKnockbackResistance());
-            setAttribute(spawned, Attribute.GENERIC_ATTACK_DAMAGE, config.guardians().obeliskAttackDamage());
+            setAttribute(spawned, Attribute.MAX_HEALTH, config.guardians().obeliskMaxHealth());
+            setAttribute(spawned, Attribute.ARMOR, config.guardians().obeliskArmor());
+            setAttribute(spawned, Attribute.KNOCKBACK_RESISTANCE, config.guardians().obeliskKnockbackResistance());
+            setAttribute(spawned, Attribute.ATTACK_DAMAGE, config.guardians().obeliskAttackDamage());
         });
         guardian.setHealth(guardian.getMaxHealth());
         obeliskCrystalByGuardian.put(guardian.getUniqueId(), crystalId);
@@ -2374,11 +2374,11 @@ public final class EndFightService {
             case SHULKER -> world.spawn(location, Shulker.class, spawned -> prepareGuardian(spawned, "Shulker Sentry"));
             case PHANTOM -> world.spawn(location, Phantom.class, spawned -> {
                 prepareGuardian(spawned, "Void-Phantom");
-                setAttribute(spawned, Attribute.GENERIC_MAX_HEALTH, config.guardians().phantomMaxHealth());
+                setAttribute(spawned, Attribute.MAX_HEALTH, config.guardians().phantomMaxHealth());
             });
             case VEX -> world.spawn(location, Vex.class, spawned -> {
                 prepareGuardian(spawned, "Void-Vex");
-                setAttribute(spawned, Attribute.GENERIC_MAX_HEALTH, config.guardians().vexMaxHealth());
+                setAttribute(spawned, Attribute.MAX_HEALTH, config.guardians().vexMaxHealth());
             });
         };
         guardian.setHealth(guardian.getMaxHealth());
@@ -2397,8 +2397,8 @@ public final class EndFightService {
         entity.setRemoveWhenFarAway(false);
         entity.customName(Component.text(name));
         entity.setCustomNameVisible(false);
-        if (entity.getAttribute(Attribute.GENERIC_SCALE) != null) {
-            entity.getAttribute(Attribute.GENERIC_SCALE).setBaseValue(settings.guardianVisual().scale());
+        if (entity.getAttribute(Attribute.SCALE) != null) {
+            entity.getAttribute(Attribute.SCALE).setBaseValue(settings.guardianVisual().scale());
         }
     }
 

@@ -7,25 +7,26 @@ version = '0.1.0-SNAPSHOT'
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 
     withSourcesJar()
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    compileOnly 'io.papermc.paper:paper-api:26.3.build.259-stable'
     compileOnly 'de.tr7zw:item-nbt-api-plugin:2.15.7'
     compileOnly files('../zyrox-api/build/libs/zyrox-api-0.1.0-SNAPSHOT.jar')
 
-    testImplementation 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    testImplementation 'io.papermc.paper:paper-api:26.3.build.259-stable'
     testImplementation 'de.tr7zw:item-nbt-api-plugin:2.15.7'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 21
+    options.release = 25
 }
 
 test {

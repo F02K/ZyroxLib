@@ -35,8 +35,10 @@ public final class WebSessionStore {
         }
 
         String sessionId = randomToken();
+        String csrfToken = randomToken();
         SimpleZyroxWebSession session = new SimpleZyroxWebSession(
                 sessionId,
+                csrfToken,
                 pendingToken.actorUniqueId(),
                 pendingToken.actorName(),
                 Instant.now(),
@@ -76,4 +78,3 @@ public final class WebSessionStore {
         }
     }
 }
-

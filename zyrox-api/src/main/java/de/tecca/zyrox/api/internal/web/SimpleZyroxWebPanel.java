@@ -41,7 +41,7 @@ public final class SimpleZyroxWebPanel implements ZyroxWebPanel {
             return;
         }
 
-        httpServer = new DashboardHttpServer(plugin, api, sessionStore, bindAddress, port);
+        httpServer = new DashboardHttpServer(plugin, api, sessionStore, bindAddress, port, usesSecureCookies());
         httpServer.start();
     }
 
@@ -75,5 +75,8 @@ public final class SimpleZyroxWebPanel implements ZyroxWebPanel {
         }
         return value;
     }
-}
 
+    private boolean usesSecureCookies() {
+        return publicUrl.regionMatches(true, 0, "https://", 0, "https://".length());
+    }
+}

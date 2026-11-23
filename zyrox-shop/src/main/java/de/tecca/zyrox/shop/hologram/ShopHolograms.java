@@ -17,7 +17,7 @@ public final class ShopHolograms {
         if (("auto".equalsIgnoreCase(backend) && decentLoaded) || "decent".equalsIgnoreCase(backend)) {
             try {
                 return new DecentShopHologramService(plugin, text);
-            } catch (NoClassDefFoundError error) {
+            } catch (IllegalStateException | LinkageError exception) {
                 plugin.getLogger().warning("DecentHolograms API is unavailable. Falling back to TextDisplay holograms.");
             }
         }

@@ -6,6 +6,7 @@ import de.tecca.zyrox.api.action.ZyroxActionResult;
 import de.tecca.zyrox.api.config.ConfigUpdater;
 import de.tecca.zyrox.api.internal.SimpleZyroxActionRegistry;
 import de.tecca.zyrox.api.internal.SimpleZyroxApi;
+import de.tecca.zyrox.api.internal.SimpleZyroxDashboardEndpointRegistry;
 import de.tecca.zyrox.api.internal.SimpleZyroxDashboardViewRegistry;
 import de.tecca.zyrox.api.internal.SimpleZyroxModuleRegistry;
 import de.tecca.zyrox.api.internal.SimpleZyroxPermissionService;
@@ -36,6 +37,7 @@ public final class ZyroxApiPlugin extends JavaPlugin {
         SimpleZyroxActionRegistry actionRegistry = new SimpleZyroxActionRegistry();
         SimpleZyroxSettingRegistry settingRegistry = new SimpleZyroxSettingRegistry();
         SimpleZyroxDashboardViewRegistry dashboardViewRegistry = new SimpleZyroxDashboardViewRegistry();
+        SimpleZyroxDashboardEndpointRegistry dashboardEndpointRegistry = new SimpleZyroxDashboardEndpointRegistry();
         SimpleZyroxPermissionService permissionService = new SimpleZyroxPermissionService(this);
         WebSessionStore webSessionStore = new WebSessionStore();
 
@@ -56,6 +58,7 @@ public final class ZyroxApiPlugin extends JavaPlugin {
                 settingRegistry,
                 webPanel,
                 dashboardViewRegistry,
+                dashboardEndpointRegistry,
                 permissionService
         );
 

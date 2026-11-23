@@ -88,9 +88,10 @@ public final class ShopStorage implements AutoCloseable {
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO shops(world_name, x, y, z, owner_uuid, owner_name, item_data,
                                   bundle_amount, price_diamonds, stock_amount, revenue_diamonds,
+                                  discount_percent, discount_expires_at,
                                   empty_stock_expires_at, last_empty_stock_warning_at,
                                   created_at, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, ?, NULL, ?, ?)
                 """, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, key.worldName());
             statement.setInt(2, key.x());
@@ -180,6 +181,34 @@ public final class ShopStorage implements AutoCloseable {
         return findById(shopId).orElseThrow();
     }
 
+    public synchronized ShopRecord setDiscount(long shopId, int percent, String expiresAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE shops
+                SET discount_percent = ?, discount_expires_at = ?, updated_at = ?
+                WHERE id = ?
+                """)) {
+            statement.setInt(1, Math.max(1, Math.min(90, percent)));
+            statement.setString(2, expiresAt);
+            statement.setString(3, now());
+            statement.setLong(4, shopId);
+            statement.executeUpdate();
+        }
+        return findById(shopId).orElseThrow();
+    }
+
+    public synchronized ShopRecord clearDiscount(long shopId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE shops
+                SET discount_percent = 0, discount_expires_at = NULL, updated_at = ?
+                WHERE id = ?
+                """)) {
+            statement.setString(1, now());
+            statement.setLong(2, shopId);
+            statement.executeUpdate();
+        }
+        return findById(shopId).orElseThrow();
+    }
+
     public synchronized ShopRecord addStock(long shopId, long amount, Player actor) throws SQLException {
         if (amount <= 0) {
             return findById(shopId).orElseThrow();
@@ -251,17 +280,34 @@ public final class ShopStorage implements AutoCloseable {
             int expectedBundleAmount,
             long expectedPriceDiamonds
     ) throws SQLException {
+        return recordPurchase(shopId, buyer, bundles, expectedBundleAmount, expectedPriceDiamonds, 0, null, expectedPriceDiamonds);
+    }
+
+    public synchronized ShopRecord recordPurchase(
+            long shopId,
+            Player buyer,
+            long bundles,
+            int expectedBundleAmount,
+            long expectedPriceDiamonds,
+            int expectedDiscountPercent,
+            String expectedDiscountExpiresAt,
+            long expectedEffectivePriceDiamonds
+    ) throws SQLException {
         if (bundles <= 0) {
             throw new SQLException("Purchase bundle amount must be positive.");
         }
         try {
             connection.setAutoCommit(false);
             ShopRecord shop = findById(shopId).orElseThrow();
-            if (shop.bundleAmount() != expectedBundleAmount || shop.priceDiamonds() != expectedPriceDiamonds) {
+            if (shop.bundleAmount() != expectedBundleAmount
+                    || shop.priceDiamonds() != expectedPriceDiamonds
+                    || shop.discountPercent() != expectedDiscountPercent
+                    || !equalNullable(shop.discountExpiresAt(), expectedDiscountExpiresAt)
+                    || shop.effectivePriceDiamonds(clock) != expectedEffectivePriceDiamonds) {
                 throw new SQLException("Shop offer changed.");
             }
             long items = Math.multiplyExact(shop.bundleAmount(), bundles);
-            long price = Math.multiplyExact(shop.priceDiamonds(), bundles);
+            long price = Math.multiplyExact(expectedEffectivePriceDiamonds, bundles);
             if (shop.stockAmount() < items) {
                 throw new SQLException("Shop does not have enough stock.");
             }
@@ -278,7 +324,8 @@ public final class ShopStorage implements AutoCloseable {
                             ELSE last_empty_stock_warning_at
                         END,
                         updated_at = ?
-                    WHERE id = ? AND bundle_amount = ? AND price_diamonds = ? AND stock_amount >= ?
+                    WHERE id = ? AND bundle_amount = ? AND price_diamonds = ? AND discount_percent = ?
+                      AND COALESCE(discount_expires_at, '') = COALESCE(?, '') AND stock_amount >= ?
                     """)) {
                 statement.setLong(1, items);
                 statement.setLong(2, price);
@@ -289,7 +336,9 @@ public final class ShopStorage implements AutoCloseable {
                 statement.setLong(7, shopId);
                 statement.setInt(8, expectedBundleAmount);
                 statement.setLong(9, expectedPriceDiamonds);
-                statement.setLong(10, items);
+                statement.setInt(10, expectedDiscountPercent);
+                statement.setString(11, expectedDiscountExpiresAt);
+                statement.setLong(12, items);
                 if (statement.executeUpdate() != 1) {
                     throw new SQLException("Shop offer or stock changed before purchase could complete.");
                 }
@@ -408,6 +457,190 @@ public final class ShopStorage implements AutoCloseable {
         }
     }
 
+    public synchronized List<ShopTransactionRecord> purchaseHistory(long shopId, int limit, int offset) throws SQLException {
+        List<ShopTransactionRecord> transactions = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT *
+                FROM shop_transactions
+                WHERE shop_id = ? AND type = ?
+                ORDER BY id DESC
+                LIMIT ? OFFSET ?
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, ShopTransactionType.PURCHASE.name());
+            statement.setInt(3, Math.max(1, limit));
+            statement.setInt(4, Math.max(0, offset));
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    transactions.add(readTransaction(resultSet));
+                }
+            }
+        }
+        return transactions;
+    }
+
+    public synchronized boolean hasPurchased(long shopId, UUID playerId) throws SQLException {
+        if (playerId == null) {
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT 1
+                FROM shop_transactions
+                WHERE shop_id = ? AND actor_uuid = ? AND type = ?
+                LIMIT 1
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, playerId.toString());
+            statement.setString(3, ShopTransactionType.PURCHASE.name());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    public synchronized boolean toggleFavorite(long shopId, Player player) throws SQLException {
+        if (findById(shopId).isEmpty()) {
+            throw new SQLException("Shop does not exist.");
+        }
+        if (isFavorite(shopId, player.getUniqueId())) {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    DELETE FROM shop_favorites
+                    WHERE shop_id = ? AND player_uuid = ?
+                    """)) {
+                statement.setLong(1, shopId);
+                statement.setString(2, player.getUniqueId().toString());
+                statement.executeUpdate();
+            }
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO shop_favorites(shop_id, player_uuid, player_name, created_at)
+                VALUES(?, ?, ?, ?)
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, player.getUniqueId().toString());
+            statement.setString(3, player.getName());
+            statement.setString(4, now());
+            statement.executeUpdate();
+        }
+        return true;
+    }
+
+    public synchronized boolean isFavorite(long shopId, UUID playerId) throws SQLException {
+        if (playerId == null) {
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT 1
+                FROM shop_favorites
+                WHERE shop_id = ? AND player_uuid = ?
+                LIMIT 1
+                """)) {
+            statement.setLong(1, shopId);
+            statement.setString(2, playerId.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    public synchronized List<ShopRecord> favorites(UUID playerId, int limit, int offset) throws SQLException {
+        List<ShopRecord> shops = new ArrayList<>();
+        if (playerId == null) {
+            return shops;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT shops.*
+                FROM shop_favorites
+                JOIN shops ON shops.id = shop_favorites.shop_id
+                WHERE shop_favorites.player_uuid = ?
+                ORDER BY shop_favorites.id DESC
+                LIMIT ? OFFSET ?
+                """)) {
+            statement.setString(1, playerId.toString());
+            statement.setInt(2, Math.max(1, limit));
+            statement.setInt(3, Math.max(0, offset));
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    shops.add(readShop(resultSet));
+                }
+            }
+        }
+        return shops;
+    }
+
+    public synchronized ShopRecord rateShop(long shopId, Player player, int rating) throws SQLException {
+        if (findById(shopId).isEmpty()) {
+            throw new SQLException("Shop does not exist.");
+        }
+        int clampedRating = Math.max(1, Math.min(5, rating));
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO shop_ratings(shop_id, player_uuid, player_name, rating, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(shop_id, player_uuid) DO UPDATE SET
+                    player_name = excluded.player_name,
+                    rating = excluded.rating,
+                    updated_at = excluded.updated_at
+                """)) {
+            String now = now();
+            statement.setLong(1, shopId);
+            statement.setString(2, player.getUniqueId().toString());
+            statement.setString(3, player.getName());
+            statement.setInt(4, clampedRating);
+            statement.setString(5, now);
+            statement.setString(6, now);
+            statement.executeUpdate();
+        }
+        return findById(shopId).orElseThrow();
+    }
+
+    public synchronized List<ShopTransactionRecord> pendingPurchaseNotifications(UUID ownerId) throws SQLException {
+        List<ShopTransactionRecord> transactions = new ArrayList<>();
+        if (ownerId == null) {
+            return transactions;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT shop_transactions.*
+                FROM shop_transactions
+                JOIN shops ON shops.id = shop_transactions.shop_id
+                WHERE shops.owner_uuid = ?
+                  AND shop_transactions.type = ?
+                  AND shop_transactions.owner_notified_at IS NULL
+                ORDER BY shop_transactions.id
+                """)) {
+            statement.setString(1, ownerId.toString());
+            statement.setString(2, ShopTransactionType.PURCHASE.name());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    transactions.add(readTransaction(resultSet));
+                }
+            }
+        }
+        return transactions;
+    }
+
+    public synchronized void markOwnerNotified(List<Long> transactionIds) throws SQLException {
+        if (transactionIds == null || transactionIds.isEmpty()) {
+            return;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE shop_transactions
+                SET owner_notified_at = ?
+                WHERE id = ?
+                """)) {
+            String now = now();
+            for (Long transactionId : transactionIds) {
+                if (transactionId == null) {
+                    continue;
+                }
+                statement.setString(1, now);
+                statement.setLong(2, transactionId);
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
     public synchronized boolean deleteShop(long shopId, Player actor, boolean force) throws SQLException {
         try {
             connection.setAutoCommit(false);
@@ -459,6 +692,8 @@ public final class ShopStorage implements AutoCloseable {
                         price_diamonds INTEGER NOT NULL,
                         stock_amount INTEGER NOT NULL,
                         revenue_diamonds INTEGER NOT NULL,
+                        discount_percent INTEGER NOT NULL DEFAULT 0,
+                        discount_expires_at TEXT,
                         empty_stock_expires_at TEXT,
                         last_empty_stock_warning_at TEXT,
                         created_at TEXT NOT NULL,
@@ -475,11 +710,37 @@ public final class ShopStorage implements AutoCloseable {
                         type TEXT NOT NULL,
                         item_amount INTEGER NOT NULL,
                         diamond_amount INTEGER NOT NULL,
+                        owner_notified_at TEXT,
                         created_at TEXT NOT NULL
                     )
                     """);
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS shop_favorites(
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        shop_id INTEGER NOT NULL,
+                        player_uuid TEXT NOT NULL,
+                        player_name TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(shop_id, player_uuid)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS shop_ratings(
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        shop_id INTEGER NOT NULL,
+                        player_uuid TEXT NOT NULL,
+                        player_name TEXT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        UNIQUE(shop_id, player_uuid)
+                    )
+                    """);
+            addColumnIfMissing(statement, "shops", "discount_percent", "INTEGER NOT NULL DEFAULT 0");
+            addColumnIfMissing(statement, "shops", "discount_expires_at", "TEXT");
             addColumnIfMissing(statement, "shops", "empty_stock_expires_at", "TEXT");
             addColumnIfMissing(statement, "shops", "last_empty_stock_warning_at", "TEXT");
+            addColumnIfMissing(statement, "shop_transactions", "owner_notified_at", "TEXT");
         }
     }
 
@@ -548,8 +809,10 @@ public final class ShopStorage implements AutoCloseable {
     }
 
     private ShopRecord readShop(ResultSet resultSet) throws SQLException {
+        long shopId = resultSet.getLong("id");
+        ShopRatingSummary rating = ratingSummary(shopId);
         return new ShopRecord(
-                resultSet.getLong("id"),
+                shopId,
                 resultSet.getString("world_name"),
                 resultSet.getInt("x"),
                 resultSet.getInt("y"),
@@ -561,10 +824,50 @@ public final class ShopStorage implements AutoCloseable {
                 resultSet.getLong("price_diamonds"),
                 resultSet.getLong("stock_amount"),
                 resultSet.getLong("revenue_diamonds"),
+                resultSet.getInt("discount_percent"),
+                resultSet.getString("discount_expires_at"),
+                rating.average(),
+                rating.count(),
                 resultSet.getString("empty_stock_expires_at"),
                 resultSet.getString("last_empty_stock_warning_at"),
                 resultSet.getString("created_at"),
                 resultSet.getString("updated_at")
         );
+    }
+
+    private ShopRatingSummary ratingSummary(long shopId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT AVG(rating) AS rating_average, COUNT(*) AS rating_count
+                FROM shop_ratings
+                WHERE shop_id = ?
+                """)) {
+            statement.setLong(1, shopId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return ShopRatingSummary.empty();
+                }
+                return new ShopRatingSummary(resultSet.getDouble("rating_average"), resultSet.getInt("rating_count"));
+            }
+        }
+    }
+
+    private ShopTransactionRecord readTransaction(ResultSet resultSet) throws SQLException {
+        String actorUuid = resultSet.getString("actor_uuid");
+        return new ShopTransactionRecord(
+                resultSet.getLong("id"),
+                resultSet.getLong("shop_id"),
+                actorUuid == null || actorUuid.isBlank() ? null : UUID.fromString(actorUuid),
+                resultSet.getString("actor_name"),
+                ShopTransactionType.valueOf(resultSet.getString("type")),
+                resultSet.getLong("item_amount"),
+                resultSet.getLong("diamond_amount"),
+                resultSet.getString("created_at")
+        );
+    }
+
+    private boolean equalNullable(String left, String right) {
+        String normalizedLeft = left == null ? "" : left;
+        String normalizedRight = right == null ? "" : right;
+        return normalizedLeft.equals(normalizedRight);
     }
 }

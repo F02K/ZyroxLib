@@ -1,0 +1,23 @@
+name: ZyroxChunkloader
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.chunkloader.plugin.ZyroxChunkloaderPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+libraries:
+  - org.xerial:sqlite-jdbc:3.53.2.0
+commands:
+  chunkloader:
+    description: Manages Zyrox chunkloaders.
+    usage: /chunkloader <list|give|remove|reload>
+permissions:
+  zyrox.chunkloader.use:
+    description: Allows placing and using own Zyrox chunkloaders.
+    default: true
+  zyrox.chunkloader.admin:
+    description: Allows administering all Zyrox chunkloaders.
+    default: op
+  zyrox.chunkloader.web:
+    description: Allows seeing ZyroxChunkloader in the Zyrox dashboard.
+    default: op

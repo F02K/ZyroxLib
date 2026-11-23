@@ -10,10 +10,11 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -112,9 +113,13 @@ public final class VerificationService {
 
         try {
             boolean removed = storage.removeDiscordBan(discordId);
-            if (removed) {
-                storage.recordEvent(VerificationEventType.DISCORD_UNBANNED, discordId, null, "Discord ban removed from local cache.");
-            }
+            storage.recordEvent(
+                    VerificationEventType.DISCORD_UNBANNED,
+                    discordId,
+                    null,
+                    removed ? "Discord ban removed from local cache." : "Discord unban received without a local cache entry."
+            );
+            restoreLinkedMinecraftAccess(discordId, storage.findAllByDiscordId(discordId));
         } catch (SQLException exception) {
             storage.recordEvent(VerificationEventType.ERROR, discordId, null, "Could not sync Discord unban: " + exception.getMessage());
             plugin.getLogger().warning("Could not sync Discord unban for " + discordId + ": " + exception.getMessage());
@@ -127,10 +132,16 @@ public final class VerificationService {
         }
 
         try {
-            storage.replaceDiscordBans(bans);
-            storage.recordEvent(VerificationEventType.BAN_SYNCED, null, null, "Synced " + bans.size() + " Discord bans.");
-            for (DiscordBan ban : bans) {
+            List<DiscordBan> currentBans = bans == null ? List.of() : List.copyOf(bans);
+            List<DiscordBan> previousBans = storage.findAllDiscordBans();
+            storage.replaceDiscordBans(currentBans);
+            storage.recordEvent(VerificationEventType.BAN_SYNCED, null, null, "Synced " + currentBans.size() + " Discord bans.");
+            for (DiscordBan ban : currentBans) {
                 unwhitelistAllLinkedDiscordAccounts(ban.discordId());
+            }
+            for (String discordId : removedDiscordBanIds(previousBans, currentBans)) {
+                storage.recordEvent(VerificationEventType.DISCORD_UNBANNED, discordId, null, "Discord ban missing from fresh Discord ban sync.");
+                restoreLinkedMinecraftAccess(discordId, storage.findAllByDiscordId(discordId));
             }
         } catch (SQLException exception) {
             storage.recordEvent(VerificationEventType.ERROR, null, null, "Could not replace Discord ban cache: " + exception.getMessage());
@@ -144,15 +155,8 @@ public final class VerificationService {
         }
 
         try {
-            Set<String> propagatedDiscordIds = new HashSet<>();
-            for (LinkedAccount account : storage.findAllLinks()) {
-                if (propagatedDiscordIds.contains(account.discordId())) {
-                    continue;
-                }
-                if (isMinecraftBanned(account)) {
-                    propagateNativeMinecraftBan(account);
-                    propagatedDiscordIds.add(account.discordId());
-                }
+            for (Map.Entry<String, List<LinkedAccount>> entry : linkedAccountsByDiscordId().entrySet()) {
+                reconcileNativeMinecraftBanGroup(entry.getKey(), entry.getValue());
             }
         } catch (SQLException exception) {
             storage.recordEvent(VerificationEventType.ERROR, null, null, "Could not reconcile native Minecraft bans: " + exception.getMessage());
@@ -166,18 +170,51 @@ public final class VerificationService {
         }
 
         try {
-            for (LinkedAccount account : storage.findAllByDiscordId(linkedAccount.discordId())) {
-                if (isMinecraftBanned(account)) {
-                    propagateNativeMinecraftBan(account);
-                    return true;
-                }
-            }
-            return false;
+            return reconcileNativeMinecraftBanGroup(linkedAccount.discordId(), storage.findAllByDiscordId(linkedAccount.discordId()));
         } catch (SQLException exception) {
             storage.recordEvent(VerificationEventType.ERROR, linkedAccount.discordId(), linkedAccount.minecraftUsername(), "Could not propagate native Minecraft ban: " + exception.getMessage());
             plugin.getLogger().warning("Could not propagate native Minecraft ban for " + linkedAccount.minecraftUsername() + ": " + exception.getMessage());
             return true;
         }
+    }
+
+    private boolean reconcileNativeMinecraftBanGroup(String discordId, List<LinkedAccount> linkedAccounts) throws SQLException {
+        if (linkedAccounts.isEmpty()) {
+            return false;
+        }
+
+        LinkedAccount externalBanSource = null;
+        boolean hasZyroxPropagatedBan = false;
+        for (LinkedAccount linkedAccount : linkedAccounts) {
+            MinecraftAccountService.LinkedMinecraftIdentity identity = identity(linkedAccount);
+            if (!minecraftAccounts.isBanned(identity)) {
+                continue;
+            }
+            if (minecraftAccounts.isZyroxDcPropagatedBan(identity, GROUP_BAN_REASON, GROUP_BAN_SOURCE)) {
+                hasZyroxPropagatedBan = true;
+                continue;
+            }
+            externalBanSource = linkedAccount;
+            break;
+        }
+
+        if (externalBanSource != null) {
+            propagateNativeMinecraftBan(externalBanSource);
+            return true;
+        }
+
+        if (hasZyroxPropagatedBan) {
+            clearPropagatedMinecraftBansAndRestoreAccess(discordId, linkedAccounts);
+        }
+        return false;
+    }
+
+    private Map<String, List<LinkedAccount>> linkedAccountsByDiscordId() throws SQLException {
+        Map<String, List<LinkedAccount>> groups = new HashMap<>();
+        for (LinkedAccount linkedAccount : storage.findAllLinks()) {
+            groups.computeIfAbsent(linkedAccount.discordId(), ignored -> new ArrayList<>()).add(linkedAccount);
+        }
+        return groups;
     }
 
     private void unwhitelistAllLinkedDiscordAccounts(String discordId) throws SQLException {
@@ -205,10 +242,54 @@ public final class VerificationService {
             }
         };
 
-        if (Bukkit.isPrimaryThread()) {
-            task.run();
-        } else {
-            Bukkit.getScheduler().runTask(plugin, task);
+        runMinecraftTask(task);
+    }
+
+    private void clearPropagatedMinecraftBansAndRestoreAccess(String discordId, List<LinkedAccount> linkedAccounts) throws SQLException {
+        boolean shouldRestoreWhitelist = shouldRestoreWhitelist(discordId);
+        runMinecraftTask(() -> {
+            for (LinkedAccount linkedAccount : linkedAccounts) {
+                MinecraftAccountService.LinkedMinecraftIdentity identity = identity(linkedAccount);
+                if (minecraftAccounts.pardonIfZyroxDcPropagatedBan(identity, GROUP_BAN_REASON, GROUP_BAN_SOURCE)) {
+                    storage.recordEvent(
+                            VerificationEventType.BAN_SYNCED,
+                            discordId,
+                            linkedAccount.minecraftUsername(),
+                            "Cleared propagated Minecraft ban because no linked source ban remains."
+                    );
+                }
+            }
+            if (shouldRestoreWhitelist) {
+                restoreLinkedMinecraftAccessOnMain(discordId, linkedAccounts);
+            }
+        });
+    }
+
+    private void restoreLinkedMinecraftAccess(String discordId, List<LinkedAccount> linkedAccounts) throws SQLException {
+        if (!shouldRestoreWhitelist(discordId)) {
+            return;
+        }
+        runMinecraftTask(() -> restoreLinkedMinecraftAccessOnMain(discordId, linkedAccounts));
+    }
+
+    private boolean shouldRestoreWhitelist(String discordId) throws SQLException {
+        return plugin.getConfig().getBoolean("behavior.auto-whitelist", true)
+                && storage.findDiscordBan(discordId).isEmpty();
+    }
+
+    private void restoreLinkedMinecraftAccessOnMain(String discordId, List<LinkedAccount> linkedAccounts) {
+        for (LinkedAccount linkedAccount : linkedAccounts) {
+            MinecraftAccountService.LinkedMinecraftIdentity identity = identity(linkedAccount);
+            if (minecraftAccounts.isBanned(identity) || minecraftAccounts.isWhitelisted(identity)) {
+                continue;
+            }
+            minecraftAccounts.setWhitelisted(linkedAccount.minecraftUsername(), true);
+            storage.recordEvent(
+                    VerificationEventType.WHITELISTED,
+                    discordId,
+                    linkedAccount.minecraftUsername(),
+                    "Restored whitelist after ban sync cleared."
+            );
         }
     }
 
@@ -242,15 +323,25 @@ public final class VerificationService {
             }
         };
 
+        runMinecraftTask(task);
+    }
+
+    private List<String> removedDiscordBanIds(List<DiscordBan> previousBans, List<DiscordBan> currentBans) {
+        List<String> currentIds = currentBans.stream()
+                .map(DiscordBan::discordId)
+                .toList();
+        return previousBans.stream()
+                .map(DiscordBan::discordId)
+                .filter(discordId -> !currentIds.contains(discordId))
+                .toList();
+    }
+
+    private void runMinecraftTask(Runnable task) {
         if (Bukkit.isPrimaryThread()) {
             task.run();
         } else {
             Bukkit.getScheduler().runTask(plugin, task);
         }
-    }
-
-    private boolean isMinecraftBanned(LinkedAccount linkedAccount) {
-        return minecraftAccounts.isBanned(identity(linkedAccount));
     }
 
     private MinecraftAccountService.LinkedMinecraftIdentity identity(LinkedAccount linkedAccount) {

@@ -1,0 +1,30 @@
+storage:
+  sqlite-file: "zyrox-protect.db"
+
+permissions:
+  admin: "zyrox.protect.admin"
+  web: "zyrox.protect.web"
+
+auth:
+  unlock-ttl-minutes: 15
+  failed-attempt-window-seconds: 60
+  max-failed-attempts: 5
+
+audit:
+  sensitive-commands:
+    - "ban"
+    - "ban-ip"
+    - "pardon"
+    - "pardon-ip"
+    - "kick"
+    - "op"
+    - "deop"
+    - "whitelist"
+    - "lp"
+    - "luckperms"
+    - "permission"
+    - "permissions"
+    - "dashboard"
+    - "protect"
+  packet-rate-limit-per-minute: 30
+  retained-days: 0

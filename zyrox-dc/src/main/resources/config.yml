@@ -51,7 +51,7 @@ chat-sync:
 marketplace:
   enabled: false
   channel-id: "0"
-  post-new-shops: true
   post-updates: true
   revenue-reminder-hours: 24
   market-command-enabled: true
+  item-icon-base-url: ""

@@ -19,7 +19,9 @@ holograms:
     - "Besitzer: {owner}"
     - "{bundle}x {item}"
     - "{enchant_lines}"
-    - "Preis: {price}"
+    - "Preis: {effective_price}"
+    - "Rabatt: {discount}"
+    - "Bewertung: {rating} ({rating_count})"
     - "Lager: {stock}"
     - "{empty_stock_lines}"
   empty-stock-line: "Schliesst in: {empty_stock_time_left}"
@@ -41,6 +43,7 @@ messages:
   no-stock: "Dieser Shop hat nicht genug Lagerbestand."
   no-space-buy: "Du hast nicht genug Platz im Inventar."
   no-diamonds: "Du brauchst {price}."
+  sale-notification: "Deine Shops hatten {sales} Verkauf(e): {items} Item(s), {revenue} Einnahmen."
   purchase-success: "Du hast {amount} Item(s) für {price} gekauft."
   purchase-failed-paid: "Die Zahlung war erfolgreich, aber die Items konnten nicht gegeben werden. Bitte melde dich beim Team."
   update-template-empty-hand: "Halte zuerst das neue Shop-Item in der Hand."
@@ -58,6 +61,25 @@ messages:
   revenue-withdraw-failed: "Die Einnahmen haben sich geändert. Bitte versuche es erneut."
   delete-blocked: "Entnimm erst Lagerbestand und gespeicherte Diamanten, bevor du den Shop löschst."
   delete-success: "Shop entfernt."
+  favorite-added: "Shop #{shop_id} wurde zu deinen Favoriten hinzugefuegt."
+  favorite-removed: "Shop #{shop_id} wurde aus deinen Favoriten entfernt."
+  favorites-header: "Deine Shop-Favoriten - Seite {page}"
+  favorites-empty: "Du hast auf dieser Seite keine Favoriten."
+  favorites-entry: "#{shop_id}: {bundle}x {item} fuer {effective_price}, Lager: {stock}, Besitzer: {owner}, Ort: {world}:{x}/{y}/{z}"
+  history-header: "Kaufhistorie fuer Shop #{shop_id} - Seite {page}"
+  history-empty: "Dieser Shop hat auf dieser Seite keine Kaeufe."
+  history-entry: "{created_at}: {buyer} kaufte {amount} Item(s) fuer {price} Diamant(en)."
+  rating-usage: "Nutze /shop rate <1-5>."
+  rating-invalid: "Bewertungen muessen zwischen 1 und 5 liegen."
+  rating-own-shop: "Du kannst deinen eigenen Shop nicht bewerten."
+  rating-no-purchase: "Du kannst diesen Shop erst nach einem Kauf bewerten."
+  rating-success: "Bewertung gespeichert. Aktuell: {rating} ({rating_count})."
+  discount-usage: "Nutze /shop discount set <1-90> [30m|2h|7d] oder /shop discount clear."
+  discount-invalid-percent: "Der Rabatt muss zwischen 1 und 90 Prozent liegen."
+  discount-invalid-duration: "Die Dauer muss z. B. 30m, 2h oder 7d sein."
+  discount-set-success: "Rabatt fuer Shop #{shop_id} gesetzt: {discount}. Effektiver Preis: {effective_price}."
+  discount-clear-success: "Rabatt fuer Shop #{shop_id} entfernt."
+  discount-editor-hint: "Nutze /shop discount set <1-90> [30m|2h|7d] oder /shop discount clear."
   empty-stock-warning: "Achtung: Shop #{shop_id} ({item}) ist leer und wird in {empty_stock_time_left} automatisch geloescht. Deadline: {empty_stock_expires_at}. Gespeicherte Einnahmen: {revenue}."
   action-busy: "Bitte warte einen Moment."
   storage-failed: "Der Shop-Speicher ist gerade nicht erreichbar."
@@ -69,6 +91,11 @@ messages:
   shop-info-stock: "Lager: {stock}, gespeicherte Diamanten: {revenue}"
   command-help-info: "/shop info"
   command-help-remove: "/shop remove"
+  command-help-history: "/shop history [page]"
+  command-help-favorite: "/shop favorite"
+  command-help-favorites: "/shop favorites [page]"
+  command-help-rate: "/shop rate <1-5>"
+  command-help-discount: "/shop discount set <1-90> [30m|2h|7d] | /shop discount clear"
   command-help-reload: "/shop reload"
   reload-success: "ZyroxShop neu geladen."
 
@@ -89,6 +116,11 @@ gui:
     bundle-up-name: "Paket +1"
     current-price: "Aktuell: {price}"
     current-bundle: "Aktuell: {bundle} Item(s)"
+    discount-name: "Rabatt"
+    discount-lore:
+      - "Aktuell: {discount}"
+      - "Effektiver Preis: {effective_price}"
+      - "Klicke zum Bearbeiten."
     deposit-name: "Alle passenden Items einlagern"
     deposit-lore:
       - "Passende Items werden aus deinem"
@@ -102,21 +134,106 @@ gui:
     revenue-name: "Diamanten auszahlen"
     revenue-lore:
       - "Gespeichert: {revenue}"
+    history-name: "Kaufhistorie"
+    history-lore:
+      - "Oeffnet die letzten Kaeufe"
+      - "dieses Shops."
     delete-name: "Shop löschen"
     delete-lore:
       - "Funktioniert nur ohne Lager"
       - "und ohne gespeicherte Diamanten."
+    history:
+      title-name: "Kaufhistorie - Seite {page}"
+      title-lore:
+        - "Shop #{shop_id}"
+      empty-name: "Keine Kaeufe"
+      empty-lore:
+        - "Auf dieser Seite gibt es"
+        - "keine Eintraege."
+      entry-name: "{buyer}"
+      entry-lore:
+        - "{created_at}"
+        - "{amount} Item(s)"
+        - "{price}"
+    discount-menu:
+      percent-down-name: "Rabatt -5%"
+      percent-info-name: "Rabatt: {selected_discount_percent}%"
+      percent-up-name: "Rabatt +5%"
+      percent-lore:
+        - "Ausgewaehlt: {selected_discount_percent}%"
+        - "Dauer: {selected_discount_duration}"
+      duration-name: "{duration}"
+      duration-lore:
+        - "Ausgewaehlt: {selected}"
+      duration-permanent: "Permanent"
+      duration-30m: "30 Minuten"
+      duration-2h: "2 Stunden"
+      duration-7d: "7 Tage"
+      save-name: "Rabatt speichern"
+      save-lore:
+        - "{selected_discount_percent}%"
+        - "{selected_discount_duration}"
+      clear-name: "Rabatt entfernen"
+      clear-lore:
+        - "Setzt den aktiven Rabatt"
+        - "zurueck."
   purchase:
     title: "Shop #{shop_id}"
     item-lore:
+      - "Material: {material}"
       - "{enchant_lines}"
-      - "Preis: {price}"
+      - "Preis: {effective_price}"
+      - "Original: {original_price}"
+      - "Rabatt: {discount}"
       - "Lager: {stock}"
+      - "Bewertung: {rating} ({rating_count})"
+      - "Favorit: {favorite}"
     buy-name: "{bundles} Paket(e) kaufen"
     buy-max-name: "Maximum kaufen"
     buy-lore:
       - "{amount} Item(s)"
       - "{price}"
+    favorite-add-name: "Favorit setzen"
+    favorite-remove-name: "Favorit entfernen"
+    favorite-lore:
+      - "Aktuell: {favorite}"
+    rating-name: "Bewerten"
+    rating-lore:
+      - "Aktuell: {rating} ({rating_count})"
+    favorites-name: "Meine Favoriten"
+    favorites-lore:
+      - "Oeffnet deine gemerkten Shops."
+  rating:
+    item-lore:
+      - "Aktuell: {rating} ({rating_count})"
+      - "Favorit: {favorite}"
+    rate-name: "{rating_value} Stern(e)"
+    rate-lore:
+      - "Speichert diese Bewertung."
+  favorites:
+    title-name: "Meine Favoriten - Seite {page}"
+    title-lore:
+      - "Klicke einen Shop zum Oeffnen."
+    empty-name: "Keine Favoriten"
+    empty-lore:
+      - "Auf dieser Seite gibt es"
+      - "keine Favoriten."
+    entry-name: "#{shop_id}: {bundle}x {item}"
+    entry-lore:
+      - "Preis: {effective_price}"
+      - "Lager: {stock}"
+      - "Besitzer: {owner}"
+      - "{world}:{x}/{y}/{z}"
+  common:
+    back-name: "Zurueck"
+    back-lore:
+      - "Zur vorherigen Ansicht."
+    previous-page-name: "Vorherige Seite"
+    previous-page-lore:
+      - "Eine Seite zurueck."
+    next-page-name: "Naechste Seite"
+    next-page-lore:
+      - "Eine Seite weiter."
 
 permissions:
   use: "zyrox.shop.use"

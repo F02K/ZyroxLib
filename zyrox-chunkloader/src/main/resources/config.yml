@@ -1,0 +1,45 @@
+storage:
+  sqlite-file: "zyrox-chunkloader.db"
+
+chunkloader:
+  block-material: "VAULT"
+  base-cost-diamond-blocks-per-hour: 1
+  billing-cycle-minutes: 60
+  disabled-worlds: []
+  status-task-interval-ticks: 20
+  visual-task-interval-ticks: 20
+  actionbar-distance: 6
+
+messages:
+  no-use-permission: "Du darfst keine Chunkloader benutzen."
+  no-admin-permission: "Du darfst Chunkloader nicht verwalten."
+  only-player-command: "Diesen Befehl koennen nur Spieler nutzen."
+  only-owner: "Nur der Besitzer kann diesen Chunkloader benutzen."
+  place-disabled-world: "In dieser Welt sind Chunkloader deaktiviert."
+  place-failed: "Der Chunkloader konnte nicht gespeichert werden."
+  place-success: "Chunkloader platziert. Lade Diamantbloecke ein, um ihn zu aktivieren."
+  break-success: "Chunkloader abgebaut. Reserve: {reserve} Diamantblock/Diamantbloecke."
+  break-protected: "Nur der Besitzer kann diesen Chunkloader abbauen."
+  storage-failed: "Der Chunkloader-Speicher ist gerade nicht erreichbar."
+  deposit-success: "{amount} Diamantblock/Diamantbloecke eingelagert."
+  deposit-empty: "Du hast keine Diamantbloecke im Inventar."
+  deposit-not-enough: "Du brauchst {amount} Diamantblock/Diamantbloecke."
+  toggle-enabled: "Chunkloader aktiviert."
+  toggle-disabled: "Chunkloader deaktiviert."
+  priority-updated: "Prioritaet aktualisiert."
+  look-at-loader: "Schaue zuerst einen Chunkloader an."
+  remove-success: "Chunkloader entfernt."
+  give-success: "{amount} Chunkloader gegeben."
+  list-header: "Deine Chunkloader:"
+  list-empty: "Du besitzt keine Chunkloader."
+  list-entry: "#{id}: {world} {x}/{y}/{z}, Chunk {chunk_x}/{chunk_z}, Reserve {reserve}, Status {status}, Rang {rank}"
+  command-help-list: "/chunkloader list"
+  command-help-give: "/chunkloader give <player> [amount]"
+  command-help-remove: "/chunkloader remove"
+  command-help-reload: "/chunkloader reload"
+  reload-success: "ZyroxChunkloader neu geladen."
+
+permissions:
+  use: "zyrox.chunkloader.use"
+  admin: "zyrox.chunkloader.admin"
+  web: "zyrox.chunkloader.web"

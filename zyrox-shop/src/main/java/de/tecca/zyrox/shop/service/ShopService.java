@@ -6,6 +6,7 @@ import de.tecca.zyrox.shop.api.ZyroxMarketShopEventType;
 import de.tecca.zyrox.shop.market.ShopMarketService;
 import de.tecca.zyrox.shop.storage.ShopRecord;
 import de.tecca.zyrox.shop.storage.ShopStorage;
+import de.tecca.zyrox.shop.storage.ShopTransactionRecord;
 import de.tecca.zyrox.shop.text.ShopText;
 import de.tecca.zyrox.shop.util.ItemStacks;
 import org.bukkit.Location;
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ShopService {
@@ -100,6 +102,95 @@ public final class ShopService {
 
     public List<ShopRecord> allShops() throws SQLException {
         return storage.allShops();
+    }
+
+    public List<ShopTransactionRecord> purchaseHistory(ShopRecord shop, int page, int pageSize) {
+        try {
+            return storage.purchaseHistory(shop.id(), Math.max(1, pageSize), Math.max(0, page - 1) * Math.max(1, pageSize));
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not load shop purchase history: " + exception.getMessage());
+            return List.of();
+        }
+    }
+
+    public List<ShopRecord> favorites(Player player, int page, int pageSize) {
+        try {
+            return storage.favorites(player.getUniqueId(), Math.max(1, pageSize), Math.max(0, page - 1) * Math.max(1, pageSize));
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not load favorite shops: " + exception.getMessage());
+            return List.of();
+        }
+    }
+
+    public boolean isFavorite(ShopRecord shop, UUID playerId) {
+        try {
+            return storage.isFavorite(shop.id(), playerId);
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not check favorite shop: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public ShopActionResult toggleFavorite(ShopRecord shop, Player player) {
+        try {
+            boolean favorite = storage.toggleFavorite(shop.id(), player);
+            return ShopActionResult.success(message(favorite ? "favorite-added" : "favorite-removed", shop), shop);
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not toggle favorite shop: " + exception.getMessage());
+            return ShopActionResult.failure(message("storage-failed", shop), shop);
+        }
+    }
+
+    public ShopActionResult rateShop(ShopRecord shop, Player player, int rating) {
+        synchronized (lockFor(shop.id())) {
+            ShopRecord current = currentShop(shop).orElse(shop);
+            if (current.isOwner(player.getUniqueId())) {
+                return ShopActionResult.failure(message("rating-own-shop", current), current);
+            }
+            try {
+                if (!storage.hasPurchased(current.id(), player.getUniqueId())) {
+                    return ShopActionResult.failure(message("rating-no-purchase", current), current);
+                }
+                ShopRecord updated = storage.rateShop(current.id(), player, rating);
+                holograms.upsert(updated);
+                publishMarketEvent(ZyroxMarketShopEventType.UPDATED, updated);
+                return ShopActionResult.success(message("rating-success", updated), updated);
+            } catch (SQLException exception) {
+                plugin.getLogger().warning("Could not rate shop: " + exception.getMessage());
+                return ShopActionResult.failure(message("storage-failed", current), current);
+            }
+        }
+    }
+
+    public ShopActionResult setDiscount(ShopRecord shop, int percent, Duration duration) {
+        synchronized (lockFor(shop.id())) {
+            ShopRecord current = currentShop(shop).orElse(shop);
+            try {
+                String expiresAt = duration == null ? null : Instant.now(clock).plus(duration).toString();
+                ShopRecord updated = storage.setDiscount(current.id(), percent, expiresAt);
+                holograms.upsert(updated);
+                publishMarketEvent(ZyroxMarketShopEventType.UPDATED, updated);
+                return ShopActionResult.success(message("discount-set-success", updated), updated);
+            } catch (SQLException exception) {
+                plugin.getLogger().warning("Could not set shop discount: " + exception.getMessage());
+                return ShopActionResult.failure(message("storage-failed", current), current);
+            }
+        }
+    }
+
+    public ShopActionResult clearDiscount(ShopRecord shop) {
+        synchronized (lockFor(shop.id())) {
+            ShopRecord current = currentShop(shop).orElse(shop);
+            try {
+                ShopRecord updated = storage.clearDiscount(current.id());
+                holograms.upsert(updated);
+                publishMarketEvent(ZyroxMarketShopEventType.UPDATED, updated);
+                return ShopActionResult.success(message("discount-clear-success", updated), updated);
+            } catch (SQLException exception) {
+                plugin.getLogger().warning("Could not clear shop discount: " + exception.getMessage());
+                return ShopActionResult.failure(message("storage-failed", current), current);
+            }
+        }
     }
 
     public ShopActionResult createShop(Block block, Player owner, ItemStack handItem) {
@@ -243,6 +334,10 @@ public final class ShopService {
     }
 
     public ShopActionResult purchase(ShopRecord shop, Player buyer, long bundles) {
+        return purchase(shop, buyer, bundles, shop.effectivePriceDiamonds(clock));
+    }
+
+    public ShopActionResult purchase(ShopRecord shop, Player buyer, long bundles, long expectedEffectivePriceDiamonds) {
         synchronized (lockFor(shop.id())) {
             ShopRecord current = currentShop(shop).orElse(shop);
             if (current.isOwner(buyer.getUniqueId())) {
@@ -251,14 +346,19 @@ public final class ShopService {
             if (bundles <= 0) {
                 return ShopActionResult.failure(message("no-bundles", current), current);
             }
-            if (current.bundleAmount() != shop.bundleAmount() || current.priceDiamonds() != shop.priceDiamonds()) {
+            if (current.bundleAmount() != shop.bundleAmount()
+                    || current.priceDiamonds() != shop.priceDiamonds()
+                    || current.discountPercent() != shop.discountPercent()
+                    || !equalNullable(current.discountExpiresAt(), shop.discountExpiresAt())
+                    || current.effectivePriceDiamonds(clock) != expectedEffectivePriceDiamonds) {
                 return ShopActionResult.failure(message("shop-updated", current), current);
             }
             long items;
+            long pricePerBundle = expectedEffectivePriceDiamonds;
             long price;
             try {
                 items = Math.multiplyExact(current.bundleAmount(), bundles);
-                price = Math.multiplyExact(current.priceDiamonds(), bundles);
+                price = Math.multiplyExact(pricePerBundle, bundles);
             } catch (ArithmeticException exception) {
                 return ShopActionResult.failure(message("shop-updated", current), current);
             }
@@ -275,7 +375,16 @@ public final class ShopService {
             ZyroxDiamondPaymentService.PaymentResult payment = payments.withdrawDiamonds(
                     buyer,
                     price,
-                    () -> storage.recordPurchase(current.id(), buyer, bundles, current.bundleAmount(), current.priceDiamonds())
+                    () -> storage.recordPurchase(
+                            current.id(),
+                            buyer,
+                            bundles,
+                            current.bundleAmount(),
+                            current.priceDiamonds(),
+                            current.discountPercent(),
+                            current.discountExpiresAt(),
+                            pricePerBundle
+                    )
             );
             if (!payment.success()) {
                 ShopRecord refreshed = currentShop(current).orElse(current);
@@ -289,6 +398,7 @@ public final class ShopService {
             try {
                 ShopRecord updated = storage.findById(current.id()).orElse(current);
                 holograms.upsert(updated);
+                notifyOwnerAboutPendingSales(updated.ownerUuid());
                 return ShopActionResult.success(message("purchase-success", updated, Map.of(
                         "amount", Long.toString(items),
                         "price", payments.formatDiamonds(price)
@@ -300,6 +410,39 @@ public final class ShopService {
                         "price", payments.formatDiamonds(price)
                 )), current);
             }
+        }
+    }
+
+    public void notifyOwnerAboutPendingSales(Player owner) {
+        if (owner == null) {
+            return;
+        }
+        notifyOwnerAboutPendingSales(owner.getUniqueId());
+    }
+
+    private void notifyOwnerAboutPendingSales(UUID ownerId) {
+        if (ownerId == null || plugin.getServer() == null) {
+            return;
+        }
+        Player owner = plugin.getServer().getPlayer(ownerId);
+        if (owner == null || !owner.isOnline()) {
+            return;
+        }
+        try {
+            List<ShopTransactionRecord> transactions = storage.pendingPurchaseNotifications(ownerId);
+            if (transactions.isEmpty()) {
+                return;
+            }
+            long itemAmount = transactions.stream().mapToLong(ShopTransactionRecord::itemAmount).sum();
+            long diamondAmount = transactions.stream().mapToLong(ShopTransactionRecord::diamondAmount).sum();
+            owner.sendMessage(message("sale-notification", Map.of(
+                    "sales", Integer.toString(transactions.size()),
+                    "items", Long.toString(itemAmount),
+                    "revenue", payments.formatDiamonds(diamondAmount)
+            )));
+            storage.markOwnerNotified(transactions.stream().map(ShopTransactionRecord::id).toList());
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("Could not notify shop owner about sales: " + exception.getMessage());
         }
     }
 
@@ -390,6 +533,10 @@ public final class ShopService {
         return text.message(path, Map.of());
     }
 
+    private String message(String path, Map<String, String> placeholders) {
+        return text.message(path, placeholders);
+    }
+
     private String message(String path, ShopRecord shop) {
         return message(path, shop, Map.of());
     }
@@ -427,5 +574,11 @@ public final class ShopService {
         if (market != null) {
             market.publish(type, shop);
         }
+    }
+
+    private boolean equalNullable(String left, String right) {
+        String normalizedLeft = left == null ? "" : left;
+        String normalizedRight = right == null ? "" : right;
+        return normalizedLeft.equals(normalizedRight);
     }
 }

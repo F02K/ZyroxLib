@@ -3,9 +3,7 @@ package de.tecca.zyrox.shop.hologram;
 import de.tecca.zyrox.shop.storage.ShopRecord;
 import de.tecca.zyrox.shop.text.ShopText;
 import org.bukkit.Location;
-import org.bukkit.World;
 import org.bukkit.entity.Display;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Transformation;
@@ -14,9 +12,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class TextDisplayShopHologramService implements ShopHologramService {
-
-    private static final String TAG = "zyrox-shop-hologram";
-    private static final String SHOP_ID_TAG_PREFIX = "zyrox-shop-hologram-id-";
 
     private final JavaPlugin plugin;
     private final ShopText text;
@@ -27,11 +22,12 @@ public final class TextDisplayShopHologramService implements ShopHologramService
         this.plugin = plugin;
         this.text = text;
         itemDisplays = new ShopItemDisplayManager(plugin);
-        removeTaggedDisplays();
+        ShopHologramCleanup.removeTextDisplays(plugin);
     }
 
     @Override
     public void upsert(ShopRecord shop) {
+        ShopHologramCleanup.removeDecentHologramIfAvailable(plugin, shop.id());
         Location location = HologramLines.location(plugin, shop);
         if (location == null) {
             return;
@@ -39,12 +35,12 @@ public final class TextDisplayShopHologramService implements ShopHologramService
         TextDisplay display = displays.get(shop.id());
         if (display == null || display.isDead()) {
             display = location.getWorld().spawn(location, TextDisplay.class);
-            display.addScoreboardTag(TAG);
+            display.addScoreboardTag(ShopHologramCleanup.TEXT_DISPLAY_TAG);
             displays.put(shop.id(), display);
         } else {
             display.teleport(location);
         }
-        display.addScoreboardTag(shopIdTag(shop.id()));
+        display.addScoreboardTag(ShopHologramCleanup.textDisplayShopIdTag(shop.id()));
         display.setBillboard(Display.Billboard.CENTER);
         display.setSeeThrough(false);
         display.setShadowed(true);
@@ -59,7 +55,7 @@ public final class TextDisplayShopHologramService implements ShopHologramService
         if (display != null && !display.isDead()) {
             display.remove();
         }
-        removeTaggedDisplay(shopId);
+        ShopHologramCleanup.removeTextDisplay(plugin, shopId);
         itemDisplays.remove(shopId);
     }
 
@@ -71,33 +67,8 @@ public final class TextDisplayShopHologramService implements ShopHologramService
             }
         }
         displays.clear();
-        removeTaggedDisplays();
+        ShopHologramCleanup.removeTextDisplays(plugin);
         itemDisplays.clear();
-    }
-
-    private void removeTaggedDisplays() {
-        for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntitiesByClass(TextDisplay.class)) {
-                if (entity.getScoreboardTags().contains(TAG)) {
-                    entity.remove();
-                }
-            }
-        }
-    }
-
-    private void removeTaggedDisplay(long shopId) {
-        String shopIdTag = shopIdTag(shopId);
-        for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntitiesByClass(TextDisplay.class)) {
-                if (entity.getScoreboardTags().contains(TAG) && entity.getScoreboardTags().contains(shopIdTag)) {
-                    entity.remove();
-                }
-            }
-        }
-    }
-
-    private String shopIdTag(long shopId) {
-        return SHOP_ID_TAG_PREFIX + shopId;
     }
 
     private Transformation scaled(Transformation transformation, String configPath, float defaultScale) {

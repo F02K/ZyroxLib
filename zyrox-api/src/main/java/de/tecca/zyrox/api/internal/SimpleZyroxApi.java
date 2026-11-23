@@ -6,6 +6,7 @@ import de.tecca.zyrox.api.action.ZyroxActionRegistry;
 import de.tecca.zyrox.api.module.ZyroxModuleRegistry;
 import de.tecca.zyrox.api.permission.ZyroxPermissionService;
 import de.tecca.zyrox.api.setting.ZyroxSettingRegistry;
+import de.tecca.zyrox.api.web.endpoint.ZyroxDashboardEndpointRegistry;
 import de.tecca.zyrox.api.web.ZyroxDashboardViewRegistry;
 import de.tecca.zyrox.api.web.ZyroxWebPanel;
 
@@ -20,6 +21,7 @@ public final class SimpleZyroxApi implements ZyroxApi {
     private final ZyroxSettingRegistry settings;
     private final ZyroxWebPanel webPanel;
     private final ZyroxDashboardViewRegistry dashboardViews;
+    private final ZyroxDashboardEndpointRegistry dashboardEndpoints;
     private final ZyroxPermissionService permissions;
 
     public SimpleZyroxApi(
@@ -30,6 +32,7 @@ public final class SimpleZyroxApi implements ZyroxApi {
             ZyroxSettingRegistry settings,
             ZyroxWebPanel webPanel,
             ZyroxDashboardViewRegistry dashboardViews,
+            ZyroxDashboardEndpointRegistry dashboardEndpoints,
             ZyroxPermissionService permissions
     ) {
         this.version = Objects.requireNonNull(version, "version");
@@ -39,6 +42,7 @@ public final class SimpleZyroxApi implements ZyroxApi {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.webPanel = Objects.requireNonNull(webPanel, "webPanel");
         this.dashboardViews = Objects.requireNonNull(dashboardViews, "dashboardViews");
+        this.dashboardEndpoints = Objects.requireNonNull(dashboardEndpoints, "dashboardEndpoints");
         this.permissions = Objects.requireNonNull(permissions, "permissions");
     }
 
@@ -75,6 +79,11 @@ public final class SimpleZyroxApi implements ZyroxApi {
     @Override
     public ZyroxDashboardViewRegistry dashboardViews() {
         return dashboardViews;
+    }
+
+    @Override
+    public ZyroxDashboardEndpointRegistry dashboardEndpoints() {
+        return dashboardEndpoints;
     }
 
     @Override

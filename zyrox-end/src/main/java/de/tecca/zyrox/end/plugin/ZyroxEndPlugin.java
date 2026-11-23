@@ -9,6 +9,7 @@ import de.tecca.zyrox.end.command.ZyroxEndCommand;
 import de.tecca.zyrox.end.fight.EndFightService;
 import de.tecca.zyrox.end.listener.EndFightListener;
 import de.tecca.zyrox.end.listener.EndDragonEggListener;
+import de.tecca.zyrox.end.listener.EndDragonEggMiningService;
 import de.tecca.zyrox.end.service.DragonEggStateStorage;
 import de.tecca.zyrox.end.service.EndDragonEggService;
 import org.bukkit.command.PluginCommand;
@@ -24,6 +25,7 @@ public final class ZyroxEndPlugin extends JavaPlugin {
 
     private ZyroxApi zyroxApi;
     private EndDragonEggService dragonEggService;
+    private EndDragonEggMiningService dragonEggMiningService;
     private EndFightService fightService;
 
     @Override
@@ -38,11 +40,13 @@ public final class ZyroxEndPlugin extends JavaPlugin {
         }
 
         dragonEggService = new EndDragonEggService(this, new DragonEggStateStorage(stateFile(), getLogger()));
+        dragonEggMiningService = new EndDragonEggMiningService(this);
         fightService = new EndFightService(this, dragonEggService);
 
         registerCommand();
         registerListeners();
         registerZyroxApiIntegrations();
+        dragonEggMiningService.start();
         fightService.start();
 
         getLogger().info("ZyroxEnd is enabled.");
@@ -52,6 +56,9 @@ public final class ZyroxEndPlugin extends JavaPlugin {
     public void onDisable() {
         if (fightService != null) {
             fightService.shutdown();
+        }
+        if (dragonEggMiningService != null) {
+            dragonEggMiningService.shutdown();
         }
 
         if (zyroxApi != null) {
@@ -94,6 +101,7 @@ public final class ZyroxEndPlugin extends JavaPlugin {
 
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new EndDragonEggListener(this, dragonEggService), this);
+        getServer().getPluginManager().registerEvents(dragonEggMiningService, this);
         getServer().getPluginManager().registerEvents(new EndFightListener(fightService), this);
     }
 

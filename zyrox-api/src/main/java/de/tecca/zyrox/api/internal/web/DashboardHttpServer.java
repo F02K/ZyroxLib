@@ -9,6 +9,7 @@ import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionParameter;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
 import de.tecca.zyrox.api.action.ZyroxActionSource;
+import de.tecca.zyrox.api.audit.ZyroxAuditSink;
 import de.tecca.zyrox.api.internal.SimpleZyroxActionContext;
 import de.tecca.zyrox.api.internal.SimpleZyroxDashboardViewContext;
 import de.tecca.zyrox.api.module.ZyroxModule;
@@ -17,6 +18,9 @@ import de.tecca.zyrox.api.setting.ZyroxSettingCategory;
 import de.tecca.zyrox.api.setting.ZyroxSettingResult;
 import de.tecca.zyrox.api.setting.ZyroxSettingType;
 import de.tecca.zyrox.api.web.ZyroxDashboardView;
+import de.tecca.zyrox.api.web.endpoint.ZyroxDashboardEndpoint;
+import de.tecca.zyrox.api.web.endpoint.ZyroxDashboardEndpointRequest;
+import de.tecca.zyrox.api.web.endpoint.ZyroxDashboardEndpointResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -42,12 +46,14 @@ public final class DashboardHttpServer implements HttpHandler {
     private final WebSessionStore sessionStore;
     private final HttpServer server;
     private final ExecutorService executorService;
+    private final boolean secureCookies;
     private boolean running;
 
-    public DashboardHttpServer(JavaPlugin plugin, ZyroxApi api, WebSessionStore sessionStore, String bindAddress, int port) throws IOException {
+    public DashboardHttpServer(JavaPlugin plugin, ZyroxApi api, WebSessionStore sessionStore, String bindAddress, int port, boolean secureCookies) throws IOException {
         this.plugin = plugin;
         this.api = api;
         this.sessionStore = sessionStore;
+        this.secureCookies = secureCookies;
         this.server = HttpServer.create(new InetSocketAddress(bindAddress, port), 0);
         this.server.createContext("/", this);
         this.executorService = Executors.newCachedThreadPool();
@@ -101,6 +107,10 @@ public final class DashboardHttpServer implements HttpHandler {
                 handleAction(exchange, path.substring("/api/actions/".length()));
                 return;
             }
+            if (path.startsWith("/api/plugins/")) {
+                handlePluginEndpoint(exchange, path.substring("/api/plugins/".length()));
+                return;
+            }
             if ("GET".equals(exchange.getRequestMethod()) && ("/".equals(path) || "/dashboard".equals(path))) {
                 writeHtml(exchange, dashboardHtml());
                 return;
@@ -122,7 +132,22 @@ public final class DashboardHttpServer implements HttpHandler {
             return;
         }
 
-        exchange.getResponseHeaders().add("Set-Cookie", SESSION_COOKIE + "=" + session.get().id() + "; Path=/; HttpOnly; SameSite=Strict");
+        SimpleZyroxWebSession webSession = session.get();
+        exchange.getResponseHeaders().add("Set-Cookie", sessionCookie(webSession.id(), secureCookies));
+        auditAdminEvent(
+                "ZYROX_API",
+                "INFO",
+                "DASHBOARD_SESSION_STARTED",
+                webSession.actorUniqueId(),
+                webSession.actorName(),
+                "DASHBOARD",
+                "ZyroxMC Dashboard",
+                "Dashboard session link was consumed.",
+                Map.of(
+                        "sessionCreatedAt", webSession.createdAt().toString(),
+                        "sessionExpiresAt", webSession.expiresAt().toString()
+                )
+        );
         writeHtml(exchange, dashboardHtml());
     }
 
@@ -180,6 +205,12 @@ public final class DashboardHttpServer implements HttpHandler {
             return;
         }
 
+        SimpleZyroxWebSession webSession = session.get();
+        if (!hasValidCsrf(exchange, webSession)) {
+            writeText(exchange, 403, "{\"success\":false,\"message\":\"Invalid CSRF token\"}", "application/json");
+            return;
+        }
+
         String[] parts = actionPath.split("/", 2);
         if (parts.length != 2) {
             writeText(exchange, 400, "{\"success\":false,\"message\":\"Invalid action path\"}", "application/json");
@@ -195,7 +226,6 @@ public final class DashboardHttpServer implements HttpHandler {
             return;
         }
 
-        SimpleZyroxWebSession webSession = session.get();
         if (!canSeeModule(webSession, module.get()) || !canRunAction(webSession, action.get())) {
             writeText(exchange, 403, "{\"success\":false,\"message\":\"Missing permission\"}", "application/json");
             return;
@@ -212,6 +242,17 @@ public final class DashboardHttpServer implements HttpHandler {
 
         Future<ZyroxActionResult> future = Bukkit.getScheduler().callSyncMethod(plugin, () -> action.get().handler().execute(context));
         ZyroxActionResult result = future.get(10, TimeUnit.SECONDS);
+        auditAdminEvent(
+                "ZYROX_API",
+                result.success() ? "INFO" : "WARNING",
+                "ACTION_EXECUTED",
+                webSession.actorUniqueId(),
+                webSession.actorName(),
+                "ACTION",
+                moduleId + "." + actionId,
+                "Zyrox action " + moduleId + "." + actionId + (result.success() ? " executed." : " failed."),
+                Map.of("module", moduleId, "action", actionId, "success", Boolean.toString(result.success()))
+        );
         writeText(exchange, 200, resultJson(result), "application/json");
     }
 
@@ -219,6 +260,12 @@ public final class DashboardHttpServer implements HttpHandler {
         Optional<SimpleZyroxWebSession> session = readSession(exchange);
         if (session.isEmpty()) {
             writeText(exchange, 401, "{\"success\":false,\"message\":\"Unauthorized\"}", "application/json");
+            return;
+        }
+
+        SimpleZyroxWebSession webSession = session.get();
+        if (!hasValidCsrf(exchange, webSession)) {
+            writeText(exchange, 403, "{\"success\":false,\"message\":\"Invalid CSRF token\"}", "application/json");
             return;
         }
 
@@ -237,7 +284,6 @@ public final class DashboardHttpServer implements HttpHandler {
             return;
         }
 
-        SimpleZyroxWebSession webSession = session.get();
         if (!canSeeModule(webSession, module.get()) || !canSeeSetting(webSession, setting.get())) {
             writeText(exchange, 403, "{\"success\":false,\"message\":\"Missing permission\"}", "application/json");
             return;
@@ -259,7 +305,72 @@ public final class DashboardHttpServer implements HttpHandler {
 
         Future<ZyroxSettingResult> future = Bukkit.getScheduler().callSyncMethod(plugin, () -> currentSetting.writer().write(value));
         ZyroxSettingResult result = future.get(10, TimeUnit.SECONDS);
+        auditAdminEvent(
+                "ZYROX_API",
+                result.success() ? "INFO" : "WARNING",
+                "SETTING_CHANGED",
+                webSession.actorUniqueId(),
+                webSession.actorName(),
+                "SETTING",
+                moduleId + "." + settingId,
+                "Zyrox setting " + moduleId + "." + settingId + (result.success() ? " saved." : " failed."),
+                Map.of(
+                        "module", moduleId,
+                        "setting", settingId,
+                        "success", Boolean.toString(result.success()),
+                        "secret", Boolean.toString(currentSetting.type() == ZyroxSettingType.SECRET)
+                )
+        );
         writeText(exchange, 200, resultJson(result), "application/json");
+    }
+
+    private void handlePluginEndpoint(HttpExchange exchange, String endpointPath) throws Exception {
+        Optional<SimpleZyroxWebSession> session = readSession(exchange);
+        if (session.isEmpty()) {
+            writeText(exchange, 401, "{\"success\":false,\"message\":\"Unauthorized\"}", "application/json");
+            return;
+        }
+
+        SimpleZyroxWebSession webSession = session.get();
+        if (requiresCsrf(exchange) && !hasValidCsrf(exchange, webSession)) {
+            writeText(exchange, 403, "{\"success\":false,\"message\":\"Invalid CSRF token\"}", "application/json");
+            return;
+        }
+
+        String[] parts = endpointPath.split("/", 2);
+        if (parts.length != 2) {
+            writeText(exchange, 400, "{\"success\":false,\"message\":\"Invalid plugin endpoint path\"}", "application/json");
+            return;
+        }
+
+        String moduleId = decode(parts[0]);
+        String endpointId = decode(parts[1]);
+        Optional<ZyroxModule> module = api.modules().get(moduleId);
+        Optional<ZyroxDashboardEndpoint> endpoint = api.dashboardEndpoints().get(moduleId, endpointId);
+        if (module.isEmpty() || endpoint.isEmpty()) {
+            writeText(exchange, 404, "{\"success\":false,\"message\":\"Endpoint not found\"}", "application/json");
+            return;
+        }
+
+        if (!canSeeModule(webSession, module.get()) || !canRunEndpoint(webSession, endpoint.get())) {
+            writeText(exchange, 403, "{\"success\":false,\"message\":\"Missing permission\"}", "application/json");
+            return;
+        }
+
+        String body = readBody(exchange);
+        Map<String, String> formParameters = parseFormBody(body);
+        Map<String, String> queryParameters = parseQuery(exchange.getRequestURI().getRawQuery());
+        ZyroxDashboardEndpointRequest request = new ZyroxDashboardEndpointRequest(
+                api,
+                webSession.actorUniqueId(),
+                webSession.actorName(),
+                exchange.getRequestMethod(),
+                queryParameters,
+                formParameters,
+                body
+        );
+        ZyroxDashboardEndpointResponse response = endpoint.get().handler().handle(request);
+        writeText(exchange, response.status(), response.body(), response.contentType());
     }
 
     private Optional<SimpleZyroxWebSession> readSession(HttpExchange exchange) {
@@ -277,6 +388,18 @@ public final class DashboardHttpServer implements HttpHandler {
         return Optional.empty();
     }
 
+    private boolean requiresCsrf(HttpExchange exchange) {
+        return "POST".equalsIgnoreCase(exchange.getRequestMethod());
+    }
+
+    private boolean hasValidCsrf(HttpExchange exchange, SimpleZyroxWebSession session) {
+        return csrfMatches(session, exchange.getRequestHeaders().getFirst("X-Zyrox-CSRF"));
+    }
+
+    static boolean csrfMatches(SimpleZyroxWebSession session, String token) {
+        return session != null && token != null && session.csrfToken().equals(token);
+    }
+
     private boolean canSeeModule(SimpleZyroxWebSession session, ZyroxModule module) {
         return !module.hasPermission() || api.permissions().hasPermission(session.actorUniqueId(), module.permission());
     }
@@ -291,6 +414,10 @@ public final class DashboardHttpServer implements HttpHandler {
 
     private boolean canSeeSetting(SimpleZyroxWebSession session, ZyroxSetting setting) {
         return !setting.hasPermission() || api.permissions().hasPermission(session.actorUniqueId(), setting.permission());
+    }
+
+    private boolean canRunEndpoint(SimpleZyroxWebSession session, ZyroxDashboardEndpoint endpoint) {
+        return !endpoint.hasPermission() || api.permissions().hasPermission(session.actorUniqueId(), endpoint.permission());
     }
 
     private String dashboardJson(SimpleZyroxWebSession session) {
@@ -340,6 +467,7 @@ public final class DashboardHttpServer implements HttpHandler {
         }
 
         return "{\"actor\":{\"name\":\"" + escapeJson(session.actorName()) + "\"},"
+                + "\"csrfToken\":\"" + escapeJson(session.csrfToken()) + "\","
                 + "\"stats\":{"
                 + "\"apiVersion\":\"" + escapeJson(api.getVersion()) + "\","
                 + "\"webStatus\":\"" + (api.webPanel().isRunning() ? "Running" : "Stopped") + "\","
@@ -546,10 +674,18 @@ public final class DashboardHttpServer implements HttpHandler {
     }
 
     private Map<String, String> parseForm(HttpExchange exchange) throws IOException {
+        String text = readBody(exchange);
+        return parseFormBody(text);
+    }
+
+    private String readBody(HttpExchange exchange) throws IOException {
         byte[] body = exchange.getRequestBody().readAllBytes();
-        String text = new String(body, StandardCharsets.UTF_8);
+        return new String(body, StandardCharsets.UTF_8);
+    }
+
+    private Map<String, String> parseFormBody(String text) {
         Map<String, String> parameters = new LinkedHashMap<>();
-        if (text.isBlank()) {
+        if (text == null || text.isBlank()) {
             return parameters;
         }
 
@@ -560,6 +696,45 @@ public final class DashboardHttpServer implements HttpHandler {
             parameters.put(key, value);
         }
         return parameters;
+    }
+
+    private Map<String, String> parseQuery(String rawQuery) {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        if (rawQuery == null || rawQuery.isBlank()) {
+            return parameters;
+        }
+        for (String part : rawQuery.split("&")) {
+            String[] pair = part.split("=", 2);
+            String key = decode(pair[0]);
+            String value = pair.length == 2 ? decode(pair[1]) : "";
+            parameters.put(key, value);
+        }
+        return parameters;
+    }
+
+    private void auditAdminEvent(
+            String category,
+            String severity,
+            String action,
+            java.util.UUID actorUniqueId,
+            String actorName,
+            String targetType,
+            String targetName,
+            String summary,
+            Map<String, String> details
+    ) {
+        api.services().get(ZyroxAuditSink.class).ifPresent(sink -> sink.recordAdminEvent(
+                category,
+                severity,
+                action,
+                ZyroxActionSource.WEB.name(),
+                Optional.ofNullable(actorUniqueId),
+                actorName,
+                targetType,
+                targetName,
+                summary,
+                details
+        ));
     }
 
     private String resultJson(ZyroxActionResult result) {
@@ -682,6 +857,39 @@ public final class DashboardHttpServer implements HttpHandler {
                             return button;
                         }
 
+                        function csrfHeaders(extra = {}) {
+                            return { ...extra, 'X-Zyrox-CSRF': dashboard?.csrfToken || '' };
+                        }
+
+                        window.zyroxDashboardPostHeaders = csrfHeaders;
+                        installFetchCsrf();
+
+                        function installFetchCsrf() {
+                            if (window.zyroxFetchCsrfInstalled) return;
+                            window.zyroxFetchCsrfInstalled = true;
+                            const originalFetch = window.fetch.bind(window);
+                            window.fetch = (input, init = {}) => {
+                                const method = String(init.method || (input && input.method) || 'GET').toUpperCase();
+                                const url = typeof input === 'string' ? input : input?.url || '';
+                                if (method === 'POST' && shouldAttachCsrf(url)) {
+                                    const headers = new Headers(init.headers || input?.headers || {});
+                                    if (!headers.has('X-Zyrox-CSRF')) {
+                                        headers.set('X-Zyrox-CSRF', dashboard?.csrfToken || '');
+                                    }
+                                    return originalFetch(input, { ...init, headers });
+                                }
+                                return originalFetch(input, init);
+                            };
+                        }
+
+                        function shouldAttachCsrf(url) {
+                            const parsed = new URL(url, window.location.origin);
+                            return parsed.origin === window.location.origin
+                                && (parsed.pathname.startsWith('/api/settings/')
+                                    || parsed.pathname.startsWith('/api/actions/')
+                                    || parsed.pathname.startsWith('/api/plugins/'));
+                        }
+
                         function renderMain() {
                             activeView = 'main';
                             const stats = dashboard.stats;
@@ -733,6 +941,18 @@ public final class DashboardHttpServer implements HttpHandler {
                                 section.className = 'panel';
                                 section.innerHTML = '<h3>' + escapeHtml(view.label) + '</h3>' + view.html;
                                 app.appendChild(section);
+                                activateScripts(section);
+                            }
+                        }
+
+                        function activateScripts(root) {
+                            for (const script of root.querySelectorAll('script')) {
+                                const active = document.createElement('script');
+                                for (const attribute of script.attributes) {
+                                    active.setAttribute(attribute.name, attribute.value);
+                                }
+                                active.textContent = script.textContent;
+                                script.replaceWith(active);
                             }
                         }
 
@@ -836,7 +1056,7 @@ public final class DashboardHttpServer implements HttpHandler {
                                 body.set('value', input.type === 'checkbox' ? String(input.checked) : input.value);
                                 const response = await fetch('/api/settings/' + encodeURIComponent(activeView) + '/' + encodeURIComponent(setting.id), {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    headers: csrfHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
                                     body
                                 });
                                 const result = await response.json();
@@ -899,7 +1119,7 @@ public final class DashboardHttpServer implements HttpHandler {
                                 }
                                 const response = await fetch('/api/actions/' + encodeURIComponent(module.id) + '/' + encodeURIComponent(action.id), {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    headers: csrfHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
                                     body
                                 });
                                 const result = await response.json();
@@ -933,11 +1153,26 @@ public final class DashboardHttpServer implements HttpHandler {
     private void writeText(HttpExchange exchange, int status, String body, String contentType) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
+        applySecurityHeaders(headers);
         headers.set("Content-Type", contentType);
         exchange.sendResponseHeaders(status, bytes.length);
         try (OutputStream outputStream = exchange.getResponseBody()) {
             outputStream.write(bytes);
         }
+    }
+
+    static void applySecurityHeaders(Headers headers) {
+        headers.set("Cache-Control", "no-store");
+        headers.set("X-Content-Type-Options", "nosniff");
+        headers.set("Referrer-Policy", "no-referrer");
+        headers.set(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        );
+    }
+
+    static String sessionCookie(String sessionId, boolean secureCookies) {
+        return SESSION_COOKIE + "=" + sessionId + "; Path=/; HttpOnly; SameSite=Strict" + (secureCookies ? "; Secure" : "");
     }
 
     private static String decode(String value) {

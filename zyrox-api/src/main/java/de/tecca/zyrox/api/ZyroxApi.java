@@ -4,6 +4,7 @@ import de.tecca.zyrox.api.action.ZyroxActionRegistry;
 import de.tecca.zyrox.api.module.ZyroxModuleRegistry;
 import de.tecca.zyrox.api.permission.ZyroxPermissionService;
 import de.tecca.zyrox.api.setting.ZyroxSettingRegistry;
+import de.tecca.zyrox.api.web.endpoint.ZyroxDashboardEndpointRegistry;
 import de.tecca.zyrox.api.web.ZyroxDashboardViewRegistry;
 import de.tecca.zyrox.api.web.ZyroxWebPanel;
 
@@ -60,6 +61,13 @@ public interface ZyroxApi {
      * @return dashboard view registry
      */
     ZyroxDashboardViewRegistry dashboardViews();
+
+    /**
+     * Returns the registry for plugin-owned dashboard HTTP endpoints.
+     *
+     * @return dashboard endpoint registry
+     */
+    ZyroxDashboardEndpointRegistry dashboardEndpoints();
 
     /**
      * Returns the permission service used by commands and web sessions.

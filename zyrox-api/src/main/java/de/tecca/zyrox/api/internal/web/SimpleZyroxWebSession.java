@@ -9,13 +9,15 @@ import java.util.UUID;
 public final class SimpleZyroxWebSession implements ZyroxWebSession {
 
     private final String id;
+    private final String csrfToken;
     private final UUID actorUniqueId;
     private final String actorName;
     private final Instant createdAt;
     private final Instant expiresAt;
 
-    public SimpleZyroxWebSession(String id, UUID actorUniqueId, String actorName, Instant createdAt, Instant expiresAt) {
+    public SimpleZyroxWebSession(String id, String csrfToken, UUID actorUniqueId, String actorName, Instant createdAt, Instant expiresAt) {
         this.id = Objects.requireNonNull(id, "id");
+        this.csrfToken = Objects.requireNonNull(csrfToken, "csrfToken");
         this.actorUniqueId = Objects.requireNonNull(actorUniqueId, "actorUniqueId");
         this.actorName = Objects.requireNonNull(actorName, "actorName");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
@@ -25,6 +27,10 @@ public final class SimpleZyroxWebSession implements ZyroxWebSession {
     @Override
     public String id() {
         return id;
+    }
+
+    String csrfToken() {
+        return csrfToken;
     }
 
     @Override
@@ -47,4 +53,3 @@ public final class SimpleZyroxWebSession implements ZyroxWebSession {
         return expiresAt;
     }
 }
-

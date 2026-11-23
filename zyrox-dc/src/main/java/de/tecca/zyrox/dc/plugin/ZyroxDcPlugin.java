@@ -279,10 +279,10 @@ public final class ZyroxDcPlugin extends JavaPlugin {
 
         registerBooleanSetting("marketplace-enabled", "Marketplace Enabled", "Enables ZyroxShop marketplace Discord integration.", "marketplace", "marketplace.enabled", false, adminPermission, 10);
         registerStringSetting("marketplace-channel-id", "Channel ID", "Discord channel id where shop marketplace posts are sent.", "marketplace", ZyroxSettingType.STRING, "marketplace.channel-id", true, adminPermission, 20, false, false);
-        registerBooleanSetting("marketplace-post-new-shops", "Post New Shops", "Posts newly created shops to the marketplace channel.", "marketplace", "marketplace.post-new-shops", adminPermission, 30);
-        registerBooleanSetting("marketplace-post-updates", "Post Updates", "Posts item, price, bundle, and restock updates to the marketplace channel.", "marketplace", "marketplace.post-updates", adminPermission, 40);
-        registerIntegerSetting("marketplace-revenue-reminder-hours", "Revenue Reminder Hours", "Hours between private Discord reminders for unclaimed shop revenue.", "marketplace", "marketplace.revenue-reminder-hours", adminPermission, 50);
-        registerBooleanSetting("marketplace-market-command", "Market Command Enabled", "Registers the Discord /market shop search command.", "marketplace", "marketplace.market-command-enabled", adminPermission, 60);
+        registerBooleanSetting("marketplace-post-updates", "Post Updates", "Posts item, price, bundle, and restock updates to the marketplace channel.", "marketplace", "marketplace.post-updates", adminPermission, 30);
+        registerIntegerSetting("marketplace-revenue-reminder-hours", "Revenue Reminder Hours", "Hours between private Discord reminders for unclaimed shop revenue.", "marketplace", "marketplace.revenue-reminder-hours", adminPermission, 40);
+        registerBooleanSetting("marketplace-market-command", "Market Command Enabled", "Registers the Discord /market shop search command.", "marketplace", "marketplace.market-command-enabled", adminPermission, 50);
+        registerStringSetting("marketplace-item-icon-base-url", "Item Icon Base URL", "HTTPS base URL for optional /market item thumbnails. Example: https://example.com/items", "marketplace", ZyroxSettingType.STRING, "marketplace.item-icon-base-url", false, adminPermission, 60, false, false);
 
         registerStringSetting("storage-sqlite-file", "SQLite File", "SQLite database path used for account links.", "storage", ZyroxSettingType.STRING, "storage.sqlite-file", true, adminPermission, 10, true, false);
 
@@ -316,10 +316,10 @@ public final class ZyroxDcPlugin extends JavaPlugin {
         zyroxApi.settings().unregister("zyrox-dc", "chat-sync-max-length");
         zyroxApi.settings().unregister("zyrox-dc", "marketplace-enabled");
         zyroxApi.settings().unregister("zyrox-dc", "marketplace-channel-id");
-        zyroxApi.settings().unregister("zyrox-dc", "marketplace-post-new-shops");
         zyroxApi.settings().unregister("zyrox-dc", "marketplace-post-updates");
         zyroxApi.settings().unregister("zyrox-dc", "marketplace-revenue-reminder-hours");
         zyroxApi.settings().unregister("zyrox-dc", "marketplace-market-command");
+        zyroxApi.settings().unregister("zyrox-dc", "marketplace-item-icon-base-url");
         zyroxApi.settings().unregister("zyrox-dc", "storage-sqlite-file");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-admin");
         zyroxApi.settings().unregister("zyrox-dc", "permissions-web");

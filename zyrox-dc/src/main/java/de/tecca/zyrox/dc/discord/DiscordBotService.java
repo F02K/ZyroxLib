@@ -29,21 +29,29 @@ import org.bukkit.ChatColor;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.awt.Color;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class DiscordBotService extends ListenerAdapter {
 
     public static final String VERIFY_BUTTON_ID = "zyroxdc_verify";
     public static final String VERIFY_MODAL_ID = "zyroxdc_verify_modal";
     public static final String USERNAME_INPUT_ID = "minecraft_username";
+    static final int MARKET_RESULT_LIMIT = 25;
+
+    private static final Duration MARKET_SESSION_TTL = Duration.ofMinutes(10);
 
     private final JavaPlugin plugin;
     private final VerificationService verificationService;
+    private final Map<String, MarketCommandSession> marketSessions = new ConcurrentHashMap<>();
+    private final AtomicLong marketSessionIds = new AtomicLong();
     private JDA jda;
     private String guildId;
     private DiscordMarketplaceHandler marketplaceHandler;
@@ -78,6 +86,7 @@ public final class DiscordBotService extends ListenerAdapter {
             jda.shutdownNow();
             jda = null;
         }
+        marketSessions.clear();
     }
 
     public boolean isRunning() {
@@ -226,7 +235,13 @@ public final class DiscordBotService extends ListenerAdapter {
 
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
-        if (!VERIFY_BUTTON_ID.equals(event.getComponentId())) {
+        String componentId = event.getComponentId();
+        if (componentId != null && componentId.startsWith(MarketCommandRenderer.COMPONENT_PREFIX)) {
+            handleMarketButtonInteraction(event);
+            return;
+        }
+
+        if (!VERIFY_BUTTON_ID.equals(componentId)) {
             return;
         }
 
@@ -266,18 +281,28 @@ public final class DiscordBotService extends ListenerAdapter {
             return;
         }
         if (!isMarketplaceEnabled() || !plugin.getConfig().getBoolean("marketplace.market-command-enabled", true) || marketplaceHandler == null) {
-            event.reply("Marketplace is currently unavailable.").setEphemeral(true).queue();
+            replyMarket(event, MarketCommandRenderer.unavailable());
             return;
         }
 
         String item = event.getOption("item") == null ? "" : event.getOption("item").getAsString();
         String owner = event.getOption("owner") == null ? "" : event.getOption("owner").getAsString();
         boolean inStockOnly = event.getOption("in_stock") == null || event.getOption("in_stock").getAsBoolean();
+        MarketCommandFilters filters = new MarketCommandFilters(item, owner, inStockOnly);
         try {
-            List<DiscordMarketplaceShop> shops = marketplaceHandler.search(item, owner, inStockOnly);
-            event.reply(formatMarketResults(shops)).setEphemeral(true).queue();
+            cleanupMarketSessions();
+            List<DiscordMarketplaceShop> shops = searchMarket(filters);
+            if (shops.isEmpty()) {
+                replyMarket(event, MarketCommandRenderer.noResults(filters));
+                return;
+            }
+
+            String sessionId = nextMarketSessionId();
+            MarketCommandSession session = new MarketCommandSession(event.getUser().getId(), filters, shops, 0, Instant.now());
+            marketSessions.put(sessionId, session);
+            replyMarket(event, MarketCommandRenderer.page(sessionId, session, itemIconBaseUrl()));
         } catch (Exception exception) {
-            event.reply("Could not search marketplace: " + exception.getMessage()).setEphemeral(true).queue();
+            replyMarket(event, MarketCommandRenderer.error("Could not search marketplace: " + exception.getMessage()));
         }
     }
 
@@ -371,6 +396,97 @@ public final class DiscordBotService extends ListenerAdapter {
                 )).queue();
     }
 
+    private void handleMarketButtonInteraction(ButtonInteractionEvent event) {
+        cleanupMarketSessions();
+
+        String payload = event.getComponentId().substring(MarketCommandRenderer.COMPONENT_PREFIX.length());
+        String[] parts = payload.split(":", 2);
+        if (parts.length != 2) {
+            editMarket(event, MarketCommandRenderer.expired());
+            return;
+        }
+
+        String sessionId = parts[0];
+        String action = parts[1];
+        MarketCommandSession session = marketSessions.get(sessionId);
+        if (session == null || session.isExpired(Instant.now(), MARKET_SESSION_TTL)) {
+            marketSessions.remove(sessionId);
+            editMarket(event, MarketCommandRenderer.expired());
+            return;
+        }
+
+        if (!session.requesterId().equals(event.getUser().getId())) {
+            replyMarket(event, MarketCommandRenderer.forbidden());
+            return;
+        }
+
+        try {
+            if (MarketCommandRenderer.ACTION_PREVIOUS.equals(action)) {
+                session = session.withPage(session.page() - 1);
+            } else if (MarketCommandRenderer.ACTION_NEXT.equals(action)) {
+                session = session.withPage(session.page() + 1);
+            } else if (MarketCommandRenderer.ACTION_REFRESH.equals(action)) {
+                List<DiscordMarketplaceShop> shops = searchMarket(session.filters());
+                if (shops.isEmpty()) {
+                    marketSessions.remove(sessionId);
+                    editMarket(event, MarketCommandRenderer.noResults(session.filters()));
+                    return;
+                }
+                session = session.withResults(shops, Instant.now());
+            } else {
+                editMarket(event, MarketCommandRenderer.expired());
+                return;
+            }
+
+            marketSessions.put(sessionId, session);
+            editMarket(event, MarketCommandRenderer.page(sessionId, session, itemIconBaseUrl()));
+        } catch (Exception exception) {
+            editMarket(event, MarketCommandRenderer.error("Could not refresh marketplace: " + exception.getMessage()));
+        }
+    }
+
+    private List<DiscordMarketplaceShop> searchMarket(MarketCommandFilters filters) throws Exception {
+        if (marketplaceHandler == null) {
+            return List.of();
+        }
+        return marketplaceHandler.search(filters.item(), filters.owner(), filters.inStockOnly()).stream()
+                .limit(MARKET_RESULT_LIMIT)
+                .toList();
+    }
+
+    private void cleanupMarketSessions() {
+        Instant now = Instant.now();
+        marketSessions.entrySet().removeIf(entry -> entry.getValue().isExpired(now, MARKET_SESSION_TTL));
+    }
+
+    private String nextMarketSessionId() {
+        return Long.toUnsignedString(marketSessionIds.incrementAndGet(), 36);
+    }
+
+    private String itemIconBaseUrl() {
+        return plugin.getConfig().getString("marketplace.item-icon-base-url", "");
+    }
+
+    private void replyMarket(SlashCommandInteractionEvent event, MarketCommandResponse response) {
+        event.replyEmbeds(response.embed())
+                .addComponents(response.components())
+                .setEphemeral(true)
+                .queue();
+    }
+
+    private void replyMarket(ButtonInteractionEvent event, MarketCommandResponse response) {
+        event.replyEmbeds(response.embed())
+                .addComponents(response.components())
+                .setEphemeral(true)
+                .queue();
+    }
+
+    private void editMarket(ButtonInteractionEvent event, MarketCommandResponse response) {
+        event.editMessageEmbeds(response.embed())
+                .setComponents(response.components())
+                .queue();
+    }
+
     private boolean isBanSyncEnabled() {
         return plugin.getConfig().getBoolean("ban-sync.enabled", true);
     }
@@ -413,27 +529,4 @@ public final class DiscordBotService extends ListenerAdapter {
         return embed;
     }
 
-    private String formatMarketResults(List<DiscordMarketplaceShop> shops) {
-        if (shops.isEmpty()) {
-            return "No matching shops found.";
-        }
-
-        StringBuilder builder = new StringBuilder("Marketplace results:\n");
-        int shown = Math.min(10, shops.size());
-        for (int index = 0; index < shown; index++) {
-            DiscordMarketplaceShop shop = shops.get(index);
-            builder.append("#").append(shop.id())
-                    .append(" | ").append(shop.bundleAmount()).append("x ").append(shop.itemName())
-                    .append(" | ").append(shop.priceDiamonds()).append(" diamond(s)")
-                    .append(" | stock ").append(shop.stockAmount())
-                    .append(" | ").append(shop.ownerName())
-                    .append(" | ").append(shop.worldName()).append(" ").append(shop.x()).append(" ").append(shop.y()).append(" ").append(shop.z())
-                    .append("\n");
-        }
-        if (shops.size() > shown) {
-            builder.append("...and ").append(shops.size() - shown).append(" more.");
-        }
-        String response = builder.toString();
-        return response.length() <= 1900 ? response : response.substring(0, 1897) + "...";
-    }
 }

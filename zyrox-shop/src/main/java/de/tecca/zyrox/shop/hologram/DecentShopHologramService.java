@@ -22,10 +22,10 @@ public final class DecentShopHologramService implements ShopHologramService {
         this.plugin = plugin;
         this.text = text;
         itemDisplays = new ShopItemDisplayManager(plugin);
+        ShopHologramCleanup.removeTextDisplays(plugin);
         try {
-            Class<?> dhapiClass = Class.forName("eu.decentsoftware.holograms.api.DHAPI");
-            removeHologram = dhapiClass.getMethod("removeHologram", String.class);
-            createHologram = dhapiClass.getMethod("createHologram", String.class, Location.class, boolean.class, java.util.List.class);
+            removeHologram = ShopHologramCleanup.decentRemoveHologramMethod();
+            createHologram = ShopHologramCleanup.decentCreateHologramMethod();
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("DecentHolograms DHAPI is not available.", exception);
         }
@@ -33,11 +33,12 @@ public final class DecentShopHologramService implements ShopHologramService {
 
     @Override
     public void upsert(ShopRecord shop) {
+        ShopHologramCleanup.removeTextDisplay(plugin, shop.id());
         Location location = HologramLines.location(plugin, shop);
         if (location == null) {
             return;
         }
-        String name = name(shop.id());
+        String name = ShopHologramCleanup.decentName(shop.id());
         try {
             removeHologram.invoke(null, name);
             createHologram.invoke(null, name, location, false, HologramLines.forShop(text, shop));
@@ -52,7 +53,7 @@ public final class DecentShopHologramService implements ShopHologramService {
     @Override
     public void remove(long shopId) {
         try {
-            removeHologram.invoke(null, name(shopId));
+            removeHologram.invoke(null, ShopHologramCleanup.decentName(shopId));
         } catch (ReflectiveOperationException | RuntimeException exception) {
             plugin.getLogger().warning("Could not remove DecentHolograms shop hologram " + shopId
                     + ": " + exception.getMessage());
@@ -66,17 +67,14 @@ public final class DecentShopHologramService implements ShopHologramService {
     public void clear() {
         for (long shopId : new HashSet<>(activeShopIds)) {
             try {
-                removeHologram.invoke(null, name(shopId));
+                removeHologram.invoke(null, ShopHologramCleanup.decentName(shopId));
             } catch (ReflectiveOperationException | RuntimeException exception) {
                 plugin.getLogger().warning("Could not clear DecentHolograms shop hologram " + shopId
                         + ": " + exception.getMessage());
             }
         }
         activeShopIds.clear();
+        ShopHologramCleanup.removeTextDisplays(plugin);
         itemDisplays.clear();
-    }
-
-    private String name(long shopId) {
-        return "zyrox_shop_" + shopId;
     }
 }

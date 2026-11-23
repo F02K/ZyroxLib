@@ -49,6 +49,16 @@ built, and versioned independently.
             +-- resources/
                 +-- plugin.yml
                 +-- config.yml
++-- zyrox-chunkloader/
+    +-- build.gradle
+    +-- settings.gradle
+    +-- src/
+        +-- main/
+            +-- java/
+            |   +-- de/tecca/zyrox/chunkloader/
+            +-- resources/
+                +-- plugin.yml
+                +-- config.yml
 ```
 
 ## Projects
@@ -218,6 +228,11 @@ discord:
 
 The Discord bot needs Guild Members Intent enabled in the Discord Developer
 Portal so `zyrox-dc` can show non-bot Discord members that are not linked yet.
+The optional `marketplace.item-icon-base-url` setting can point at a HTTPS folder
+with item PNGs named after Bukkit materials in lowercase, for example
+`diamond_sword.png`. Public Minecraft asset browsers such as
+[MC Asset Cloud](https://mcasset.cloud/latest) can be useful references, but are
+not official Mojang or Microsoft infrastructure.
 
 Admin commands:
 
@@ -270,6 +285,23 @@ Admin command:
 
 ```text
 /economy reload
+```
+
+## Chunkloaders
+
+`zyrox-chunkloader` depends on `ZyroxAPI` and adds expensive Vault-based
+chunkloaders. A loader keeps exactly the chunk containing its own block loaded
+while it has prepaid fuel. Fuel is paid with physical diamond blocks stored in
+the loader. A player's active loaders are charged by priority rank: rank 1 costs
+1 diamond block per hour, rank 2 costs 2, rank 3 costs 3, and so on. Players can
+reorder their loaders in the GUI so important chunks stay cheaper.
+
+Admin commands:
+
+```text
+/chunkloader give <player> [amount]
+/chunkloader remove
+/chunkloader reload
 ```
 
 ## Chest Shops

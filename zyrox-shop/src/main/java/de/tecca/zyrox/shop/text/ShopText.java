@@ -6,7 +6,9 @@ import de.tecca.zyrox.shop.util.ItemStacks;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
@@ -67,13 +69,25 @@ public final class ShopText {
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("shop_id", Long.toString(shop.id()));
         placeholders.put("item", ItemStacks.displayName(shop.itemTemplate()));
+        placeholders.put("material", shop.itemTemplate().getType().name());
         placeholders.put("bundle", Integer.toString(shop.bundleAmount()));
         placeholders.put("price", payments.formatDiamonds(shop.priceDiamonds()));
         placeholders.put("price_raw", Long.toString(shop.priceDiamonds()));
+        placeholders.put("original_price", payments.formatDiamonds(shop.priceDiamonds()));
+        placeholders.put("effective_price", payments.formatDiamonds(shop.effectivePriceDiamonds(Clock.systemUTC())));
         placeholders.put("stock", Long.toString(shop.stockAmount()));
         placeholders.put("owner", shop.ownerName());
+        placeholders.put("world", shop.worldName());
+        placeholders.put("x", Integer.toString(shop.x()));
+        placeholders.put("y", Integer.toString(shop.y()));
+        placeholders.put("z", Integer.toString(shop.z()));
         placeholders.put("revenue", payments.formatDiamonds(shop.revenueDiamonds()));
         placeholders.put("enchants", ItemStacks.enchantmentSummary(shop.itemTemplate()));
+        placeholders.put("rating", shop.ratingCount() <= 0 ? "-" : String.format(Locale.ROOT, "%.1f", shop.ratingAverage()));
+        placeholders.put("rating_count", Integer.toString(shop.ratingCount()));
+        placeholders.put("discount", discountText(shop));
+        placeholders.put("discount_percent", Integer.toString(shop.activeDiscountPercent(Clock.systemUTC())));
+        placeholders.put("discount_expires_at", formatInstant(shop.discountExpiresAt()));
         placeholders.put("empty_stock_expires_at", formatInstant(shop.emptyStockExpiresAt()));
         placeholders.put("empty_stock_time_left", timeLeft(shop.emptyStockExpiresAt()));
         return placeholders;
@@ -82,7 +96,7 @@ public final class ShopText {
     public String format(String value, Map<String, String> placeholders) {
         String formatted = value == null ? "" : value;
         for (Map.Entry<String, String> entry : placeholders.entrySet()) {
-            formatted = formatted.replace("{" + entry.getKey() + "}", entry.getValue());
+            formatted = formatted.replace("{" + entry.getKey() + "}", entry.getValue() == null ? "" : entry.getValue());
         }
         return formatted;
     }
@@ -96,7 +110,7 @@ public final class ShopText {
                 addEmptyStockLine(lines, line, placeholders);
                 return;
             }
-            lines.add(format(line, placeholders));
+            addIfNotBlank(lines, format(line, placeholders));
             return;
         }
         String enchantSummary = placeholders.getOrDefault("enchants", "");
@@ -104,7 +118,7 @@ public final class ShopText {
             return;
         }
         for (String enchantment : enchantSummary.split(", ")) {
-            lines.add(format(line.replace("{enchant_lines}", enchantment), placeholders));
+            addIfNotBlank(lines, format(line.replace("{enchant_lines}", enchantment), placeholders));
         }
     }
 
@@ -114,7 +128,13 @@ public final class ShopText {
             return;
         }
         String configured = plugin.getConfig().getString("holograms.empty-stock-line", "Schliesst in: {empty_stock_time_left}");
-        lines.add(format(line.replace("{empty_stock_lines}", configured), placeholders));
+        addIfNotBlank(lines, format(line.replace("{empty_stock_lines}", configured), placeholders));
+    }
+
+    private void addIfNotBlank(List<String> lines, String line) {
+        if (line != null && !line.isBlank()) {
+            lines.add(line);
+        }
     }
 
     private String formatInstant(String value) {
@@ -122,6 +142,16 @@ public final class ShopText {
             return "-";
         }
         return value;
+    }
+
+    private String discountText(ShopRecord shop) {
+        if (!shop.hasActiveDiscount(Clock.systemUTC())) {
+            return "-";
+        }
+        if (shop.discountExpiresAt() == null || shop.discountExpiresAt().isBlank()) {
+            return shop.discountPercent() + "%";
+        }
+        return shop.discountPercent() + "% bis " + formatInstant(shop.discountExpiresAt());
     }
 
     private String timeLeft(String value) {

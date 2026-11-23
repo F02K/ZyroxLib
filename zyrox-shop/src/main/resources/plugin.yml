@@ -13,7 +13,7 @@ libraries:
 commands:
   shop:
     description: Manages Zyrox chest shops.
-    usage: /shop <reload|remove|info>
+    usage: /shop <reload|remove|info|history|favorite|favorites|rate|discount>
 permissions:
   zyrox.shop.use:
     description: Allows buying from Zyrox shops.

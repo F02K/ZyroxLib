@@ -81,10 +81,10 @@ public final class ZyroxDcMarketplaceIntegration implements ZyroxShopMarketListe
         if (!enabled() || event == null || event.shop() == null) {
             return;
         }
-        if (event.type() == ZyroxMarketShopEventType.CREATED && !plugin.getConfig().getBoolean("marketplace.post-new-shops", true)) {
+        if (event.type() == ZyroxMarketShopEventType.CREATED) {
             return;
         }
-        if (event.type() != ZyroxMarketShopEventType.CREATED && !plugin.getConfig().getBoolean("marketplace.post-updates", true)) {
+        if (!plugin.getConfig().getBoolean("marketplace.post-updates", true)) {
             return;
         }
         discordBot.sendMarketplaceShopPost(event.type().name(), toDiscordShop(event.shop()));

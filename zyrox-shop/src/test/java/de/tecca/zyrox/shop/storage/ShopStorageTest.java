@@ -68,6 +68,95 @@ class ShopStorageTest {
     }
 
     @Test
+    void discountedPurchaseUsesEffectivePrice() throws Exception {
+        File database = temporaryDirectory.resolve("shops.db").toFile();
+        Player owner = player("Owner");
+        Player buyer = player("Buyer");
+
+        try (ShopStorage storage = storage(database)) {
+            storage.open();
+            ShopRecord shop = storage.createShop(new TestLocation("world", 50, 51, 52).location(), owner, item(Material.STICK), 1, 10);
+            storage.addStock(shop.id(), 4, owner);
+            ShopRecord discounted = storage.setDiscount(shop.id(), 25, null);
+
+            ShopRecord updated = storage.recordPurchase(
+                    discounted.id(),
+                    buyer,
+                    1,
+                    discounted.bundleAmount(),
+                    discounted.priceDiamonds(),
+                    discounted.discountPercent(),
+                    discounted.discountExpiresAt(),
+                    discounted.effectivePriceDiamonds(Clock.fixed(Instant.parse("2026-07-13T12:00:00Z"), ZoneOffset.UTC))
+            );
+
+            assertEquals(8, updated.revenueDiamonds());
+            assertEquals(3, updated.stockAmount());
+        }
+    }
+
+    @Test
+    void staleDiscountPurchaseDoesNotMoveStockOrRevenue() throws Exception {
+        File database = temporaryDirectory.resolve("shops.db").toFile();
+        Player owner = player("Owner");
+        Player buyer = player("Buyer");
+
+        try (ShopStorage storage = storage(database)) {
+            storage.open();
+            ShopRecord shop = storage.createShop(new TestLocation("world", 53, 54, 55).location(), owner, item(Material.STICK), 1, 10);
+            storage.addStock(shop.id(), 4, owner);
+            storage.setDiscount(shop.id(), 25, null);
+
+            assertThrows(Exception.class, () -> storage.recordPurchase(shop.id(), buyer, 1, 1, 10, 0, null, 10));
+            ShopRecord loaded = storage.findById(shop.id()).orElseThrow();
+
+            assertEquals(4, loaded.stockAmount());
+            assertEquals(0, loaded.revenueDiamonds());
+        }
+    }
+
+    @Test
+    void favoritesToggleAndListByPlayer() throws Exception {
+        File database = temporaryDirectory.resolve("shops.db").toFile();
+        Player owner = player("Owner");
+        Player buyer = player("Buyer");
+
+        try (ShopStorage storage = storage(database)) {
+            storage.open();
+            ShopRecord shop = storage.createShop(new TestLocation("world", 56, 57, 58).location(), owner, item(Material.STICK), 1, 1);
+
+            assertTrue(storage.toggleFavorite(shop.id(), buyer));
+            assertTrue(storage.isFavorite(shop.id(), buyer.getUniqueId()));
+            assertEquals(shop.id(), storage.favorites(buyer.getUniqueId(), 10, 0).getFirst().id());
+            assertFalse(storage.toggleFavorite(shop.id(), buyer));
+            assertTrue(storage.favorites(buyer.getUniqueId(), 10, 0).isEmpty());
+        }
+    }
+
+    @Test
+    void ratingsUpdateSinglePlayerSummary() throws Exception {
+        File database = temporaryDirectory.resolve("shops.db").toFile();
+        Player owner = player("Owner");
+        Player buyer = player("Buyer");
+
+        try (ShopStorage storage = storage(database)) {
+            storage.open();
+            ShopRecord shop = storage.createShop(new TestLocation("world", 59, 60, 61).location(), owner, item(Material.STICK), 1, 1);
+            storage.addStock(shop.id(), 2, owner);
+            storage.recordPurchase(shop.id(), buyer, 1, 1, 1);
+
+            ShopRecord rated = storage.rateShop(shop.id(), buyer, 5);
+            ShopRecord updated = storage.rateShop(shop.id(), buyer, 3);
+
+            assertTrue(storage.hasPurchased(shop.id(), buyer.getUniqueId()));
+            assertEquals(5.0D, rated.ratingAverage());
+            assertEquals(1, rated.ratingCount());
+            assertEquals(3.0D, updated.ratingAverage());
+            assertEquals(1, updated.ratingCount());
+        }
+    }
+
+    @Test
     void stalePurchaseDoesNotMoveStockOrRevenue() throws Exception {
         File database = temporaryDirectory.resolve("shops.db").toFile();
         TestLocation location = new TestLocation("world", 7, 8, 9);

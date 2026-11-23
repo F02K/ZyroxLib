@@ -1,0 +1,23 @@
+name: ZyroxProtect
+version: 0.1.0-SNAPSHOT
+main: de.tecca.zyrox.protect.plugin.ZyroxProtectPlugin
+api-version: '1.21'
+author: tecca
+depend:
+  - ZyroxAPI
+softdepend:
+  - LuckPerms
+  - packetevents
+libraries:
+  - org.xerial:sqlite-jdbc:3.53.2.0
+commands:
+  protect:
+    description: Manages ZyroxProtect audit and security controls.
+    usage: /protect <status|setup-password|lock|export|purge-expired|reload>
+permissions:
+  zyrox.protect.admin:
+    description: Allows managing ZyroxProtect.
+    default: op
+  zyrox.protect.web:
+    description: Allows viewing ZyroxProtect in the dashboard.
+    default: op

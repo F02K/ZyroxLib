@@ -10,6 +10,7 @@ import de.tecca.zyrox.shop.storage.ShopStorage;
 import de.tecca.zyrox.shop.util.ItemStacks;
 
 import java.sql.SQLException;
+import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -79,6 +80,11 @@ public final class ShopMarketService implements ZyroxShopMarketService {
                 ItemStacks.enchantmentSummary(shop.itemTemplate()),
                 shop.bundleAmount(),
                 shop.priceDiamonds(),
+                shop.effectivePriceDiamonds(Clock.systemUTC()),
+                shop.activeDiscountPercent(Clock.systemUTC()),
+                shop.discountExpiresAt(),
+                shop.ratingAverage(),
+                shop.ratingCount(),
                 shop.stockAmount(),
                 shop.revenueDiamonds(),
                 shop.worldName(),

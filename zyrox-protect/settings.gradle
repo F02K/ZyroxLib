@@ -1,0 +1,31 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        maven {
+            name = 'papermc'
+            url = 'https://repo.papermc.io/repository/maven-public/'
+        }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        maven {
+            name = 'papermc'
+            url = 'https://repo.papermc.io/repository/maven-public/'
+        }
+        maven {
+            name = 'codemc-releases'
+            url = 'https://repo.codemc.io/repository/maven-releases/'
+        }
+        maven {
+            name = 'codemc-snapshots'
+            url = 'https://repo.codemc.io/repository/maven-snapshots/'
+        }
+    }
+}
+
+rootProject.name = 'zyrox-protect'

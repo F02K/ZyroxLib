@@ -1,6 +1,7 @@
 package de.tecca.zyrox.api.internal.command;
 
 import de.tecca.zyrox.api.ZyroxApi;
+import de.tecca.zyrox.api.audit.ZyroxAuditSink;
 import de.tecca.zyrox.api.action.ZyroxAction;
 import de.tecca.zyrox.api.action.ZyroxActionParameter;
 import de.tecca.zyrox.api.action.ZyroxActionResult;
@@ -119,11 +120,35 @@ public final class ZyroxCommand implements CommandExecutor, TabCompleter {
 
         try {
             ZyroxActionResult result = zyroxAction.handler().execute(context);
+            auditAction(context.source().name(), context.actorUniqueId(), context.actorName(), moduleId, actionId, result.success());
             sender.sendMessage(result.message());
         } catch (Exception exception) {
+            auditAction(context.source().name(), context.actorUniqueId(), context.actorName(), moduleId, actionId, false);
             sender.sendMessage("Action failed: " + exception.getMessage());
         }
         return true;
+    }
+
+    private void auditAction(
+            String source,
+            Optional<UUID> actorUniqueId,
+            String actorName,
+            String moduleId,
+            String actionId,
+            boolean success
+    ) {
+        api.services().get(ZyroxAuditSink.class).ifPresent(sink -> sink.recordAdminEvent(
+                "ZYROX_API",
+                success ? "INFO" : "WARNING",
+                "ACTION_EXECUTED",
+                source,
+                actorUniqueId,
+                actorName,
+                "ACTION",
+                moduleId + "." + actionId,
+                "Zyrox action " + moduleId + "." + actionId + (success ? " executed." : " failed."),
+                Map.of("module", moduleId, "action", actionId, "success", Boolean.toString(success))
+        ));
     }
 
     private boolean senderHasPermission(CommandSender sender, String permission) {
